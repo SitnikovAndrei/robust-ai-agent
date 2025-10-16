@@ -1,0 +1,17 @@
+button.robust-patcher-btn,
+button.robust-patcher-validate {
+  transition: all 0.2s ease;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.robust-patcher-btn:hover,
+button.robust-patcher-validate:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+button.robust-patcher-btn:active,
+button.robust-patcher-validate:active {
+  transform: translateY(0);
+}

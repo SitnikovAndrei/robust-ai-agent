@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robust Patcher</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+  <style>
+    body {
+      width: 400px;
+      height: 1000px;
+      margin: 0;
+      overflow: hidden;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .container-fluid {
+      height: 100%;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      color: white;
+      margin-bottom: 10px;
+    }
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+    }
+    .left-panel, .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+    }
+    .left-panel {
+      height: 480px;
+      flex-shrink: 0;
+    }
+    .right-panel {
+      flex: 1;
+      min-height: 0;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .card-fill {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .patch-textarea {
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      resize: none;
+      flex: 1;
+      min-height: 0;
+    }
+    .results-container {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .result-item {
+      padding: 8px;
+      margin-bottom: 6px;
+      border-radius: 6px;
+      border-left: 3px solid #dee2e6;
+      font-size: 11px;
+    }
+    .result-item.success {
+      background: #d1e7dd;
+      border-left-color: #198754;
+    }
+    .result-item.failed {
+      background: #f8d7da;
+      border-left-color: #dc3545;
+    }
+    .result-item.skipped {
+      background: #fff3cd;
+      border-left-color: #ffc107;
+    }
+    .stats {
+      display: flex;
+      gap: 5px;
+    }
+    .stat-box {
+      flex: 1;
+      text-align: center;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+    .stat-success { background: linear-gradient(135deg, #d1e7dd 0%, #a3cfbb 100%); }
+    .stat-skipped { background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%); }
+    .stat-failed { background: linear-gradient(135deg, #f8d7da 0%, #f1aeb5 100%); }
+    .btn-sm { font-size: 11px; padding: 4px 8px; }
+    .auto-load-badge {
+      background: #10b981;
+      color: white;
+      padding: 3px 10px;
+      border-radius: 15px;
+      font-size: 10px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="header d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">
+        <i class="bi bi-wrench-adjustable"></i> Robust Patcher
+      </h5>
+      <div id="autoLoadIndicator" class="d-none">
+        <span class="auto-load-badge">
+          <i class="bi bi-lightning-fill"></i> Auto-loaded
+        </span>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Left Panel -->
+      <div class="left-panel">
+        <div class="card card-fill">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <strong style="font-size: 12px;">
+              <i class="bi bi-file-text"></i> Patch Content
+            </strong>
+            <div>
+              <button class="btn btn-sm btn-outline-primary me-1" id="loadFromClipboard">
+                <i class="bi bi-clipboard"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" id="loadExample">
+                <i class="bi bi-file-earmark-code"></i>
+              </button>
+            </div>
+          </div>
+          <textarea 
+            class="form-control patch-textarea" 
+            id="patchContent"
+            placeholder="Paste your patch or click 'Apply Patch' on Claude.ai..."
+            spellcheck="false"
+          ></textarea>
+          <div class="d-flex gap-2 mt-2">
+            <button class="btn btn-primary btn-sm flex-fill" id="btnDryRun">
+              <i class="bi bi-search"></i> Validate
+            </button>
+            <button class="btn btn-success btn-sm flex-fill" id="btnApply">
+              <i class="bi bi-play-fill"></i> Apply
+            </button>
+          </div>
+          <div class="mt-2">
+            <input 
+              type="text" 
+              class="form-control form-control-sm" 
+              id="baseDir" 
+              placeholder="Base directory"
+              value="."
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel -->
+      <div class="right-panel">
+        <div id="statsSection" class="d-none">
+          <div class="stats">
+            <div class="stat-box stat-success">
+              <h6 class="mb-0" id="statsSuccess">0</h6>
+              <small>Success</small>
+            </div>
+            <div class="stat-box stat-skipped">
+              <h6 class="mb-0" id="statsSkipped">0</h6>
+              <small>Skipped</small>
+            </div>
+            <div class="stat-box stat-failed">
+              <h6 class="mb-0" id="statsFailed">0</h6>
+              <small>Failed</small>
+            </div>
+          </div>
+        </div>
+
+        <div id="metadataSection" class="card d-none">
+          <strong style="font-size: 12px;">
+            <i class="bi bi-info-circle"></i> Patch Info
+          </strong>
+          <div style="font-size: 11px;" class="mt-1">
+            <div><strong id="metaName"></strong></div>
+            <div class="text-muted" id="metaDescription"></div>
+          </div>
+        </div>
+
+        <div id="errorSection" class="alert alert-danger d-none p-2" role="alert" style="font-size: 11px;">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          <span id="errorMessage"></span>
+        </div>
+
+        <div id="resultsSection" class="card card-fill d-none">
+          <strong style="font-size: 12px;" class="mb-2">
+            <i class="bi bi-list-check"></i> Results
+          </strong>
+          <div class="results-container" id="resultsContainer"></div>
+        </div>
+
+        <div id="emptyState" class="card text-center" style="padding: 40px;">
+          <i class="bi bi-file-earmark-code" style="font-size: 3rem; color: #ccc;"></i>
+          <p class="text-muted mt-2 mb-0" style="font-size: 11px;">
+            Paste a patch or click<br>"Apply Patch" on Claude.ai
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
