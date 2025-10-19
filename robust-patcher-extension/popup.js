@@ -1,4 +1,4 @@
-const BACKEND_URL = 'http://localhost:8080';
+const BACKEND_URL = 'http://localhost:9081';
 const EXAMPLE_PATCH = `=== PATCH START ===
 NAME: Example
 DESCRIPTION: Demo
@@ -121,7 +121,7 @@ function displayResults(metadata, results, stats) {
   els.statsSection.classList.remove('d-none');
   
   els.resultsContainer.innerHTML = '';
-  results.forEach(r => {
+  results.filter((r) => r.status != "success").forEach(r => {
     const el = document.createElement('div');
     el.className = `result-item ${r.status}`;
     const icons = {
