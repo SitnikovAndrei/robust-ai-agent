@@ -21,9 +21,10 @@ dependencies {
     implementation("io.ktor:ktor-server-call-logging-jvm")
     implementation("io.ktor:ktor-server-status-pages-jvm")
     implementation("ch.qos.logback:logback-classic:1.4.11")
-    
-    testImplementation("io.ktor:ktor-server-tests-jvm")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
+
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+    testImplementation(kotlin("test"))
 }
 
 application {
@@ -32,4 +33,8 @@ application {
 
 kotlin {
     jvmToolchain(17)
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

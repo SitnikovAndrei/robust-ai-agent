@@ -25,38 +25,97 @@ class PatchExecutor(private val baseDir: File) {
     private fun removeComments(text: String): String {
         var result = text
         result = result.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
-        result = result.lines().map { line ->
+        result = result.lines().map { line ->1
             val commentIndex = line.indexOfAny(listOf("//", "#"))
             if (commentIndex >= 0) line.substring(0, commentIndex) else line
         }.joinToString("\n")
         return result
     }
 
-    private fun normalizeForFuzzy(text: String, ignoreComments: Boolean, ignoreEmptyLines: Boolean): String {
+    private fun normalizeForFuzzy(
+        text: String, 
+        ignoreComments: Boolean, 
+        ignoreEmptyLines: Boolean
+    ): String {
         var result = text
-        if (ignoreComments) result = removeComments(result)
-        val lines = result.lines().map { line ->
-            val normalized = line.replace("\t", "    ")
-            normalized.trimEnd()
+        
+        if (ignoreComments) {
+            result = removeComments(result)
         }
-        val filteredLines = if (ignoreEmptyLines) lines.filter { it.isNotBlank() } else lines
+        
+        // Нормализуем каждую строку
+        val lines = result.lines()
+            .map { line ->
+                // Заменяем tabs на spaces
+                var normalized = line.replace("\t", "    ")
+                // Убираем лишние пробелы (несколько пробелов подряд → один пробел)
+                normalized = normalized.replace(Regex("\\s+"), " ")
+                // Убираем trailing и leading пробелы
+                normalized.trim()
+            }
+        
+        // Убираем пустые строки если нужно
+        val filteredLines = if (ignoreEmptyLines) {
+            lines.filter { it.isNotBlank() }
+        } else {
+            lines
+        }
+        
         return filteredLines.joinToString("\n")
     }
-
+    /**
+     * Вычисляет расстояние Левенштейна между двумя строками
+     */
+    private fun levenshteinDistance(s1: String, s2: String): Int {
+        val len1 = s1.length
+        val len2 = s2.length
+        
+        // Оптимизация для пустых строк
+        if (len1 == 0) return len2
+        if (len2 == 0) return len1
+        
+        // Матрица расстояний
+        val dp = Array(len1 + 1) { IntArray(len2 + 1) }
+        
+        // Инициализация первой строки и столбца
+        for (i in 0..len1) dp[i][0] = i
+        for (j in 0..len2) dp[0][j] = j
+        
+        // Вычисление расстояний
+        for (i in 1..len1) {
+            for (j in 1..len2) {
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1,      // deletion
+                    dp[i][j - 1] + 1,      // insertion
+                    dp[i - 1][j - 1] + cost // substitution
+                )
+            }
+        }
+        
+        return dp[len1][len2]
+    }
+    
+    /**
+     * Вычисляет коэффициент схожести (0.0 - 1.0) используя расстояние Левенштейна
+     */
     private fun calculateFuzzySimilarity(text1: String, text2: String, options: MatchOptions): Double {
         val norm1 = normalizeForFuzzy(text1, options.ignoreComments, options.ignoreEmptyLines)
         val norm2 = normalizeForFuzzy(text2, options.ignoreComments, options.ignoreEmptyLines)
+        
         val s1 = if (options.caseSensitive) norm1 else norm1.lowercase()
         val s2 = if (options.caseSensitive) norm2 else norm2.lowercase()
+        
         if (s1 == s2) return 1.0
+        
         val maxLen = maxOf(s1.length, s2.length)
         if (maxLen == 0) return 1.0
-        var matches = 0
-        val minLen = minOf(s1.length, s2.length)
-        for (i in 0 until minLen) {
-            if (s1[i] == s2[i]) matches++
-        }
-        return matches.toDouble() / maxLen
+        
+        // Используем расстояние Левенштейна
+        val distance = levenshteinDistance(s1, s2)
+        
+        // Преобразуем расстояние в схожесть (1.0 = идентичны, 0.0 = полностью разные)
+        return 1.0 - (distance.toDouble() / maxLen)
     }
 
     private fun findFuzzyMatch(
@@ -65,56 +124,102 @@ class PatchExecutor(private val baseDir: File) {
         options: MatchOptions,
         lineEnding: String
     ): MatchResult? {
+        // Нормализуем паттерн
         val normalizedPattern = normalizeForFuzzy(pattern, options.ignoreComments, options.ignoreEmptyLines)
-        val patternLines = normalizedPattern.lines().filter { it.isNotBlank() }
-        if (patternLines.isEmpty()) return null
-
-        // Оптимизация: если threshold = 1.0, используем точное сравнение
+        val s1 = if (options.caseSensitive) normalizedPattern else normalizedPattern.lowercase()
+        
+        if (s1.isBlank()) return null
+        
+        // Оптимизация: если threshold = 1.0, используем точное сравнение после нормализации
         if (options.fuzzyThreshold >= 1.0) {
+            // Нормализуем весь контент
             val normalizedContent = normalizeForFuzzy(content, options.ignoreComments, options.ignoreEmptyLines)
-            val s1 = if (options.caseSensitive) normalizedPattern else normalizedPattern.lowercase()
             val s2 = if (options.caseSensitive) normalizedContent else normalizedContent.lowercase()
-
+            
+            // Ищем точное совпадение в нормализованном тексте
             val index = s2.indexOf(s1)
             if (index >= 0) {
-                // Найдено точное совпадение после нормализации
-                // Находим соответствующую позицию в оригинальном контенте
-                val contentLines = content.lines()
-                val patternLineCount = patternLines.size
-
-                for (startLine in contentLines.indices) {
-                    if (startLine + patternLineCount > contentLines.size) break
-                    val windowLines = contentLines.subList(startLine, startLine + patternLineCount)
-                    val window = windowLines.joinToString("\n")
-                    val normalizedWindow = normalizeForFuzzy(window, options.ignoreComments, options.ignoreEmptyLines)
-                    val sw = if (options.caseSensitive) normalizedWindow else normalizedWindow.lowercase()
-
-                    if (sw == s1) {
-                        val beforeLines = contentLines.subList(0, startLine)
-                        val offset =
-                            beforeLines.joinToString(lineEnding).length + (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
-                        return MatchResult(offset, window.length, window)
+                // Нашли! Теперь находим соответствующие строки в оригинальном контенте
+                // Считаем сколько нормализованных строк до найденного места
+                val beforeNormalized = s2.substring(0, index)
+                val linesBeforeInNormalized = beforeNormalized.count { it == '\n' }
+                
+                // Теперь ищем эти же строки в оригинале
+                val originalLines = content.lines()
+                var normalizedLineCount = 0
+                var originalLineIndex = 0
+                
+                // Пропускаем строки до начала совпадения
+                while (originalLineIndex < originalLines.size && normalizedLineCount < linesBeforeInNormalized) {
+                    val line = originalLines[originalLineIndex]
+                    val normalized = normalizeForFuzzy(line, options.ignoreComments, options.ignoreEmptyLines)
+                    if (normalized.isNotBlank() || !options.ignoreEmptyLines) {
+                        normalizedLineCount++
                     }
+                    originalLineIndex++
                 }
+                
+                // Теперь берем нужное количество строк из оригинала
+                val patternNormalizedLines = s1.lines().size
+                val startLine = originalLineIndex
+                var collectedNormalizedLines = 0
+                var endLine = startLine
+                
+                while (endLine < originalLines.size && collectedNormalizedLines < patternNormalizedLines) {
+                    val line = originalLines[endLine]
+                    val normalized = normalizeForFuzzy(line, options.ignoreComments, options.ignoreEmptyLines)
+                    if (normalized.isNotBlank() || !options.ignoreEmptyLines) {
+                        collectedNormalizedLines++
+                    }
+                    endLine++
+                }
+                
+                // Собираем оригинальные строки
+                val matchedLines = originalLines.subList(startLine, endLine)
+                val matchedText = matchedLines.joinToString(lineEnding)
+                
+                // Вычисляем offset
+                val beforeLines = originalLines.subList(0, startLine)
+                val offset = beforeLines.joinToString(lineEnding).length + 
+                             (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
+
+                return MatchResult(offset, matchedText.length, matchedText)
             }
             return null
         }
-
+        
         // Для threshold < 1.0 используем сравнение с вычислением similarity
+        // Используем скользящее окно по оригинальным строкам
         val contentLines = content.lines()
+        val patternLineCount = pattern.lines().filter { it.isNotBlank() || !options.ignoreEmptyLines }.size
+        
         for (startLine in contentLines.indices) {
-            if (startLine + patternLines.size > contentLines.size) break
-            val windowLines = contentLines.subList(startLine, startLine + patternLines.size)
-            val window = windowLines.joinToString("\n")
+            // Берем окно из оригинальных строк
+            var endLine = startLine
+            var lineCount = 0
+            
+            while (endLine < contentLines.size && lineCount < patternLineCount) {
+                val line = contentLines[endLine]
+                if (line.isNotBlank() || !options.ignoreEmptyLines) {
+                    lineCount++
+                }
+                endLine++
+            }
+            
+            if (lineCount < patternLineCount) break
+            
+            val windowLines = contentLines.subList(startLine, endLine)
+            val window = windowLines.joinToString(lineEnding)
             val similarity = calculateFuzzySimilarity(pattern, window, options)
+            
             if (similarity >= options.fuzzyThreshold) {
                 val beforeLines = contentLines.subList(0, startLine)
-                val offset =
-                    beforeLines.joinToString(lineEnding).length + (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
-                val matchLength = window.length
-                return MatchResult(offset, matchLength, window)
+                val offset = beforeLines.joinToString(lineEnding).length + 
+                             (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
+                return MatchResult(offset, window.length, window)
             }
         }
+        
         return null
     }
 
