@@ -106,22 +106,22 @@ class PatchParser {
         val matchOptions = parseMatchOptions(params, blocks)
         return when (action.lowercase()) {
             "replace" -> PatchAction.Replace(
-                find = blocks["FIND"] ?: throw IllegalArgumentException("Missing FIND block"),
+                find = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
                 replace = blocks["REPLACE"] ?: throw IllegalArgumentException("Missing REPLACE block"),
                 matchOptions = matchOptions
             )
             "insert_before" -> PatchAction.InsertBefore(
-                marker = blocks["MARKER"] ?: throw IllegalArgumentException("Missing MARKER block"),
+                marker = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
                 content = blocks["CONTENT"] ?: throw IllegalArgumentException("Missing CONTENT block"),
                 matchOptions = matchOptions
             )
             "insert_after" -> PatchAction.InsertAfter(
-                marker = blocks["MARKER"] ?: throw IllegalArgumentException("Missing MARKER block"),
+                marker = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
                 content = blocks["CONTENT"] ?: throw IllegalArgumentException("Missing CONTENT block"),
                 matchOptions = matchOptions
             )
             "delete" -> PatchAction.Delete(
-                find = blocks["FIND"] ?: throw IllegalArgumentException("Missing FIND block"),
+                find = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
                 matchOptions = matchOptions
             )
             "create_file" -> PatchAction.CreateFile(
