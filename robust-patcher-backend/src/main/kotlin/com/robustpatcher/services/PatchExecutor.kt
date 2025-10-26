@@ -25,10 +25,10 @@ class PatchExecutor(private val baseDir: File) {
     private fun removeComments(text: String): String {
         var result = text
         result = result.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
-        result = result.lines().map { line ->1
+        result = result.lines().joinToString("\n") { line ->
             val commentIndex = line.indexOfAny(listOf("//", "#"))
-            if (commentIndex >= 0) line.substring(0, commentIndex) else line
-        }.joinToString("\n")
+            if (commentIndex >= 0) line.take(commentIndex) else line
+        }
         return result
     }
 
