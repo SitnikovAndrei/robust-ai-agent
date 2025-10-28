@@ -8,9 +8,9 @@ data class PatchMetadata(
 )
 
 enum class MatchMode {
-    STRICT,      // Точное совпадение с учетом переносов строк
-    FUZZY,       // Текстовое сравнение с нормализацией пробелов/отступов
-    SEMANTIC,    // Сравнение структуры через сигнатуры (Kotlin/Java)
+    NORMALIZED,  // Нормализованное совпадение (FUZZY с threshold=1.0)
+    FUZZY,       // Нечёткое совпадение с настраиваемым порогом
+    SEMANTIC,    // Сопоставление по сигнатуре
     REGEX,       // Регулярное выражение
     CONTAINS,    // Содержит подстроку
     LINE_RANGE   // Диапазон строк
@@ -32,10 +32,10 @@ data class AnchorOptions(
 )
 
 data class MatchOptions(
-    val mode: MatchMode = MatchMode.STRICT,
+    val mode: MatchMode = MatchMode.NORMALIZED,
     
     // FUZZY параметры
-    val fuzzyThreshold: Double = 1.0,
+    val fuzzyThreshold: Double = 0.85,
     val ignoreComments: Boolean = false,
     val ignoreEmptyLines: Boolean = true,
     val caseSensitive: Boolean = true,
@@ -78,7 +78,7 @@ sealed class PatchAction {
     
     data class CreateFile(val content: String) : PatchAction()
     data class ReplaceFile(val content: String) : PatchAction()
-    data class DeleteFile(val confirm: Boolean = false) : PatchAction()
+    class DeleteFile() : PatchAction()
     data class MoveFile(val destination: String, val overwrite: Boolean = false) : PatchAction()
 }
 

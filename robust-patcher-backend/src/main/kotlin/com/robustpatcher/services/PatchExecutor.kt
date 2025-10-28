@@ -243,26 +243,39 @@ class PatchExecutor(private val baseDir: File) {
         }
         return null
     }
-
     private fun findAnchorContext(content: String, anchor: AnchorOptions, lineEnding: String): String? {
         val anchorIndex = when (anchor.matchMode) {
-            MatchMode.STRICT -> content.indexOf(anchor.anchorText)
-            MatchMode.FUZZY -> {
+            MatchMode.NORMALIZED -> {
                 val match = findFuzzyMatch(
                     content,
                     anchor.anchorText,
-                    MatchOptions(mode = MatchMode.FUZZY, fuzzyThreshold = 0.9),
+                    MatchOptions(mode = MatchMode.NORMALIZED, fuzzyThreshold = 1.0),
                     lineEnding
                 )
                 match?.index ?: -1
             }
-
+            MatchMode.FUZZY -> {
+                val match = findFuzzyMatch(
+                    content,
+                    anchor.anchorText,
+                    MatchOptions(mode = MatchMode.FUZZY, fuzzyThreshold = 0.85),
+                    lineEnding
+                )
+                match?.index ?: -1
+            }
             MatchMode.SEMANTIC -> {
                 val match = findSemanticMatch(content, anchor.anchorText, MatchOptions(mode = MatchMode.SEMANTIC))
                 match?.index ?: -1
             }
-
-            else -> content.indexOf(anchor.anchorText)
+            else -> {
+                val match = findFuzzyMatch(
+                    content,
+                    anchor.anchorText,
+                    MatchOptions(mode = MatchMode.NORMALIZED, fuzzyThreshold = 1.0),
+                    lineEnding
+                )
+                match?.index ?: -1
+            }
         }
         if (anchorIndex < 0) return null
         return when (anchor.scope) {
@@ -309,7 +322,6 @@ class PatchExecutor(private val baseDir: File) {
             beforeLines.joinToString(lineEnding).length + (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
         return MatchResult(offset, matchText.length, matchText)
     }
-
     private fun findMatch(
         content: String,
         searchPattern: String,
@@ -320,12 +332,11 @@ class PatchExecutor(private val baseDir: File) {
             findAnchorContext(content, options.anchor, lineEnding) ?: return null
         } else content
         return when (options.mode) {
-            MatchMode.STRICT -> {
-                val prepared = prepareForSearch(searchPattern, lineEnding)
-                val index = searchContent.indexOf(prepared)
-                if (index >= 0) MatchResult(index, prepared.length, prepared) else null
+            MatchMode.NORMALIZED -> {
+                // NORMALIZED = FUZZY с threshold 1.0
+                val normalizedOptions = options.copy(fuzzyThreshold = 1.0)
+                findFuzzyMatch(searchContent, searchPattern, normalizedOptions, lineEnding)
             }
-
             MatchMode.FUZZY -> findFuzzyMatch(searchContent, searchPattern, options, lineEnding)
             MatchMode.SEMANTIC -> findSemanticMatch(searchContent, searchPattern, options)
             MatchMode.REGEX -> {
@@ -430,15 +441,7 @@ class PatchExecutor(private val baseDir: File) {
                         "Файл не существует"
                     )
                 }
-                if (!action.confirm) {
-                    return FilePatchResult(
-                        filePatch.file,
-                        filePatch.description,
-                        "delete_file",
-                        PatchStatus.FAILED,
-                        "Требуется подтверждение (CONFIRM: true)"
-                    )
-                }
+
                 if (!dryRun) {
                     try {
                         file.delete()
