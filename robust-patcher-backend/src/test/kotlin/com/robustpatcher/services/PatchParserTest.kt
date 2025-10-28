@@ -1,554 +1,565 @@
-package com.robustpatcher.services
+package com.robustpatcher
 
 import com.robustpatcher.models.*
-import org.junit.jupiter.api.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
+import com.robustpatcher.services.PatchExecutor
+import java.io.File
+import kotlin.test.*
 
-class PatchParserTest {
+class PatcherTests {
+
+    private val testBaseDir = File("test_temp")
+
+    @BeforeTest
+    fun setup() {
+        testBaseDir.mkdirs()
+    }
+
+    @AfterTest
+    fun cleanup() {
+        testBaseDir.deleteRecursively()
+    }
+
+    // ==================== NORMALIZED MODE TESTS ====================
 
     @Test
-    fun `parses basic patch`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test Patch
-            DESCRIPTION: Test description
-            AUTHOR: Test Author
-            VERSION: 1.0.0
-            ---
-            
-            --- FILE: Test.kt ---
-            ACTION: replace
-            DESCRIPTION: Replace function
-            <<< FIND
-            val x = 10
-            FIND >>>
-            <<< REPLACE
-            val x = 20
-            REPLACE >>>
-            
-            === PATCH END ===
+    fun `test normalized match - exact same formatting`() {
+        val content = """
+            val x = 1
+            val y = 2
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (metadata, patches) = parser.parse(patchContent)
+        val pattern = """
+            val x = 1
+            val y = 2
+        """.trimIndent()
 
-        assertEquals("Test Patch", metadata.name)
-        assertEquals("Test description", metadata.description)
-        assertEquals("Test Author", metadata.author)
-        assertEquals("1.0.0", metadata.version)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(mode = MatchMode.NORMALIZED)
+        val result = executor.findMatch(content, pattern, options, "\n")
 
-        assertEquals(1, patches.size)
-        val patch = patches[0]
-        assertEquals("Test.kt", patch.file)
-        assertEquals("Replace function", patch.description)
-        assertTrue(patch.action is PatchAction.Replace)
-
-        val action = patch.action as PatchAction.Replace
-        assertEquals("val x = 10", action.find)
-        assertEquals("val x = 20", action.replace)
+        assertNotNull(result, "Should find exact match")
+        assertEquals(2, result.matchedText.lines().size, "Should match exactly 2 lines")
+        assertTrue(result.matchedText.contains("val x = 1"))
+        assertTrue(result.matchedText.contains("val y = 2"))
     }
 
     @Test
-    fun `parses STRICT mode by default`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            <<< FIND
-            test
-            FIND >>>
-            <<< REPLACE
-            replaced
-            REPLACE >>>
-            === PATCH END ===
+    fun `test normalized match - different whitespace`() {
+        val content = """
+            val   x   =   1
+            	val y=2
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val pattern = """
+            val x = 1
+            val y = 2
+        """.trimIndent()
 
-        val action = patches[0].action as PatchAction.Replace
-        assertEquals(MatchMode.STRICT, action.matchOptions.mode)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(mode = MatchMode.NORMALIZED)
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find match despite whitespace differences")
+        assertEquals(2, result.matchedText.lines().size)
     }
 
     @Test
-    fun `parses FUZZY mode with parameters`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            MATCH_MODE: fuzzy
-            FUZZY_THRESHOLD: 0.90
-            IGNORE_COMMENTS: true
-            IGNORE_EMPTY_LINES: false
-            CASE_SENSITIVE: false
-            <<< FIND
-            test
-            FIND >>>
-            <<< REPLACE
-            replaced
-            REPLACE >>>
-            === PATCH END ===
+    fun `test normalized match - with comments ignored`() {
+        val content = """
+            val x = 1 // comment here
+            val y = 2 /* block comment */
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val pattern = """
+            val x = 1
+            val y = 2
+        """.trimIndent()
 
-        val action = patches[0].action as PatchAction.Replace
-        assertEquals(MatchMode.FUZZY, action.matchOptions.mode)
-        assertEquals(0.90, action.matchOptions.fuzzyThreshold)
-        assertEquals(true, action.matchOptions.ignoreComments)
-        assertEquals(false, action.matchOptions.ignoreEmptyLines)
-        assertEquals(false, action.matchOptions.caseSensitive)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.NORMALIZED,
+            ignoreComments = true
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find match ignoring comments")
     }
 
     @Test
-    fun `parses SEMANTIC mode with parameters`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            MATCH_MODE: semantic
-            MATCH_FUNCTION_NAME: true
-            MATCH_PARAMETER_TYPES: true
-            MATCH_PARAMETER_NAMES: true
-            MATCH_RETURN_TYPE: true
-            MATCH_MODIFIERS: true
-            <<< FIND
-            fun test(): Unit
-            FIND >>>
-            <<< REPLACE
-            fun test(): Unit { }
-            REPLACE >>>
-            === PATCH END ===
+    fun `test normalized match - case insensitive`() {
+        val content = """
+            VAL X = 1
+            VAL Y = 2
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val pattern = """
+            val x = 1
+            val y = 2
+        """.trimIndent()
 
-        val action = patches[0].action as PatchAction.Replace
-        assertEquals(MatchMode.SEMANTIC, action.matchOptions.mode)
-        assertEquals(true, action.matchOptions.matchFunctionName)
-        assertEquals(true, action.matchOptions.matchParameterTypes)
-        assertEquals(true, action.matchOptions.matchParameterNames)
-        assertEquals(true, action.matchOptions.matchReturnType)
-        assertEquals(true, action.matchOptions.matchModifiers)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.NORMALIZED,
+            caseSensitive = false
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find match ignoring case")
     }
 
     @Test
-    fun `parses ANCHOR with parameters`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            MATCH_MODE: fuzzy
-            ANCHOR_MATCH_MODE: semantic
-            ANCHOR_SCOPE: function
-            ANCHOR_SEARCH_DEPTH: 2
-            <<< ANCHOR
-            fun myFunction()
-            ANCHOR >>>
-            <<< FIND
-            val x = 10
-            FIND >>>
-            <<< REPLACE
-            val x = 20
-            REPLACE >>>
-            === PATCH END ===
+    fun `test normalized match - should not find partial match`() {
+        val content = """
+            val x = 1
+            val y = 2
+            val z = 3
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val pattern = """
+            val x = 1
+            val y = 99
+        """.trimIndent()
 
-        val action = patches[0].action as PatchAction.Replace
-        assertNotNull(action.matchOptions.anchor)
-        assertEquals("fun myFunction()", action.matchOptions.anchor!!.anchorText)
-        assertEquals(MatchMode.SEMANTIC, action.matchOptions.anchor!!.matchMode)
-        assertEquals(AnchorScope.FUNCTION, action.matchOptions.anchor!!.scope)
-        assertEquals(2, action.matchOptions.anchor!!.searchDepth)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(mode = MatchMode.NORMALIZED)
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNull(result, "Should not find match when content differs")
     }
 
     @Test
-    fun `parses INSERT_BEFORE action`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: insert_before
-            <<< MARKER
-            return x
-            MARKER >>>
-            <<< CONTENT
-            validate()
-            CONTENT >>>
-            === PATCH END ===
+    fun `test normalized match - exact line count`() {
+        val content = """
+            val x = 1
+            val y = 2
+            val z = 3
+            val w = 4
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val pattern = """
+            val y = 2
+            val z = 3
+        """.trimIndent()
 
-        assertTrue(patches[0].action is PatchAction.InsertBefore)
-        val action = patches[0].action as PatchAction.InsertBefore
-        assertEquals("return x", action.marker)
-        assertEquals("validate()", action.content)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(mode = MatchMode.NORMALIZED)
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find 2-line match in middle")
+        assertEquals(2, result.matchedText.lines().size, "Should return exactly 2 lines")
+        assertFalse(result.matchedText.contains("val x = 1"), "Should not include line before")
+        assertFalse(result.matchedText.contains("val w = 4"), "Should not include line after")
+    }
+
+    // ==================== FUZZY MODE TESTS ====================
+
+    @Test
+    fun `test fuzzy match - high similarity`() {
+        val content = """
+            val x = 1
+            val y = 2
+        """.trimIndent()
+
+        val pattern = """
+            val x = 1
+            val z = 2
+        """.trimIndent()
+
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.FUZZY,
+            fuzzyThreshold = 0.7
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find fuzzy match with threshold 0.7")
+        assertEquals(2, result.matchedText.lines().size, "Should match exactly 2 lines")
     }
 
     @Test
-    fun `parses INSERT_AFTER action`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: insert_after
-            <<< MARKER
-            fun test()
-            MARKER >>>
-            <<< CONTENT
-            logger.info("test")
-            CONTENT >>>
-            === PATCH END ===
+    fun `test fuzzy match - low threshold finds more`() {
+        val content = """
+            val x = 1
+            val y = 2
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val pattern = """
+            val a = 1
+            val b = 2
+        """.trimIndent()
 
-        assertTrue(patches[0].action is PatchAction.InsertAfter)
-        val action = patches[0].action as PatchAction.InsertAfter
-        assertEquals("fun test()", action.marker)
-        assertEquals("logger.info(\"test\")", action.content)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.FUZZY,
+            fuzzyThreshold = 0.5
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find match with low threshold")
     }
 
     @Test
-    fun `parses DELETE action`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: delete
-            <<< FIND
-            deprecated code
-            FIND >>>
-            === PATCH END ===
+    fun `test fuzzy match - threshold too high`() {
+        val content = """
+            val x = 1
+            val y = 2
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val pattern = """
+            val a = 1
+            val b = 2
+        """.trimIndent()
 
-        assertTrue(patches[0].action is PatchAction.Delete)
-        val action = patches[0].action as PatchAction.Delete
-        assertEquals("deprecated code", action.find)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.FUZZY,
+            fuzzyThreshold = 0.95
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNull(result, "Should not find match with high threshold")
     }
 
     @Test
-    fun `parses CREATE_FILE action`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: NewFile.kt ---
-            ACTION: create_file
-            <<< CONTENT
-            package com.test
-            
-            class NewClass
-            CONTENT >>>
-            === PATCH END ===
+    fun `test fuzzy match - exact line count returned`() {
+        val content = """
+            val x = 1
+            val y = 2
+            val z = 3
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
-
-        assertTrue(patches[0].action is PatchAction.CreateFile)
-        val action = patches[0].action as PatchAction.CreateFile
-        assertTrue(action.content.contains("class NewClass"))
-    }
-
-    @Test
-    fun `parses REPLACE_FILE action`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace_file
-            <<< CONTENT
-            new content
-            CONTENT >>>
-            === PATCH END ===
+        val pattern = """
+            val x = 1
+            val w = 2
         """.trimIndent()
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.FUZZY,
+            fuzzyThreshold = 0.7
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
 
-        assertTrue(patches[0].action is PatchAction.ReplaceFile)
-        val action = patches[0].action as PatchAction.ReplaceFile
-        assertEquals("new content", action.content)
+        assertNotNull(result)
+        assertEquals(2, result.matchedText.lines().size, "Fuzzy should return exactly same line count as pattern")
+        assertFalse(result.matchedText.contains("val z = 3"), "Should not include extra lines")
     }
 
-    @Test
-    fun `parses DELETE_FILE action`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: delete_file
-            <<< CONFIRM
-            true
-            CONFIRM >>>
-            === PATCH END ===
-        """.trimIndent()
-
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
-
-        assertTrue(patches[0].action is PatchAction.DeleteFile)
-        val action = patches[0].action as PatchAction.DeleteFile
-        assertEquals(true, action.confirm)
-    }
+    // ==================== SEMANTIC MODE TESTS ====================
 
     @Test
-    fun `parses MOVE_FILE action`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Old.kt ---
-            ACTION: move_file
-            <<< TO
-            New.kt
-            TO >>>
-            <<< OVERWRITE
-            true
-            OVERWRITE >>>
-            === PATCH END ===
-        """.trimIndent()
-
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
-
-        assertTrue(patches[0].action is PatchAction.MoveFile)
-        val action = patches[0].action as PatchAction.MoveFile
-        assertEquals("New.kt", action.destination)
-        assertEquals(true, action.overwrite)
-    }
-
-    @Test
-    fun `parses multiple patches in one file`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: File1.kt ---
-            ACTION: replace
-            <<< FIND
-            test1
-            FIND >>>
-            <<< REPLACE
-            replaced1
-            REPLACE >>>
-            
-            --- FILE: File2.kt ---
-            ACTION: replace
-            <<< FIND
-            test2
-            FIND >>>
-            <<< REPLACE
-            replaced2
-            REPLACE >>>
-            
-            --- FILE: File3.kt ---
-            ACTION: delete
-            <<< FIND
-            test3
-            FIND >>>
-            
-            === PATCH END ===
-        """.trimIndent()
-
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
-
-        assertEquals(3, patches.size)
-        assertEquals("File1.kt", patches[0].file)
-        assertEquals("File2.kt", patches[1].file)
-        assertEquals("File3.kt", patches[2].file)
-    }
-
-    @Test
-    fun `parses multiline content`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            <<< FIND
-            fun calculate() {
-                val x = 10
-                val y = 20
-                return x + y
+    fun `test semantic match - function by name`() {
+        val content = """
+            fun process(input: String, count: Int): Boolean {
+                return true
             }
-            FIND >>>
-            <<< REPLACE
-            fun calculate() {
-                val result = 10 + 20
+        """.trimIndent()
+
+        val pattern = "fun process(input: String, count: Int): Boolean"
+
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.SEMANTIC,
+            matchFunctionName = true,
+            matchParameterTypes = true
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find function by signature")
+        assertTrue(result.matchedText.contains("fun process"))
+        assertTrue(result.matchedText.contains("return true"))
+    }
+
+    @Test
+    fun `test semantic match - distinguish between similar functions`() {
+        val content = """
+            fun process(input: String, count: Int): Boolean {
+                println("First")
+                return true
+            }
+            
+            fun process(data: String, num: Int): Boolean {
+                println("Second")
+                return false
+            }
+        """.trimIndent()
+
+        val pattern = "fun process(data: String, num: Int): Boolean"
+
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.SEMANTIC,
+            matchFunctionName = true,
+            matchParameterTypes = true,
+            matchParameterNames = true
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find second function by parameter names")
+        assertTrue(result.matchedText.contains("Second"), "Should match second function")
+        assertFalse(result.matchedText.contains("First"), "Should not match first function")
+    }
+
+    @Test
+    fun `test semantic match - ignore parameter names when disabled`() {
+        val content = """
+            fun process(input: String, count: Int): Boolean {
+                return true
+            }
+        """.trimIndent()
+
+        val pattern = "fun process(data: String, num: Int): Boolean"
+
+        val executor = PatchExecutor(testBaseDir)
+        val options = MatchOptions(
+            mode = MatchMode.SEMANTIC,
+            matchFunctionName = true,
+            matchParameterTypes = true,
+            matchParameterNames = false
+        )
+        val result = executor.findMatch(content, pattern, options, "\n")
+
+        assertNotNull(result, "Should find function ignoring parameter names")
+    }
+
+    // ==================== REPLACE OPERATION TESTS ====================
+
+    @Test
+    fun `test replace operation - simple replacement`() {
+        val testFile = File(testBaseDir, "test.kt")
+        testFile.writeText("""
+            fun example() {
+                val x = 1
+                val y = 2
+                println(x + y)
+            }
+        """.trimIndent())
+
+        val patch = FilePatch(
+            file = "test.kt",
+            description = "Update variables",
+            action = PatchAction.Replace(
+                find = "val x = 1\nval y = 2",
+                replace = "val x = 10\nval y = 20\nval z = 30",
+                matchOptions = MatchOptions(mode = MatchMode.NORMALIZED)
+            )
+        )
+
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        val newContent = testFile.readText()
+        assertTrue(newContent.contains("val x = 10"))
+        assertTrue(newContent.contains("val y = 20"))
+        assertTrue(newContent.contains("val z = 30"))
+        assertTrue(newContent.contains("println(x + y)"), "Should preserve other code")
+    }
+
+    @Test
+    fun `test replace operation - does not affect surrounding code`() {
+        val testFile = File(testBaseDir, "test.kt")
+        testFile.writeText("""
+            val a = 0
+            val x = 1
+            val y = 2
+            val b = 3
+        """.trimIndent())
+
+        val patch = FilePatch(
+            file = "test.kt",
+            description = "Replace middle lines",
+            action = PatchAction.Replace(
+                find = "val x = 1\nval y = 2",
+                replace = "val x = 99\nval y = 99",
+                matchOptions = MatchOptions(mode = MatchMode.NORMALIZED)
+            )
+        )
+
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        val newContent = testFile.readText()
+        assertTrue(newContent.contains("val a = 0"), "Should preserve line before")
+        assertTrue(newContent.contains("val b = 3"), "Should preserve line after")
+        assertTrue(newContent.contains("val x = 99"))
+        assertFalse(newContent.contains("val x = 1"))
+    }
+
+    // ==================== INSERT TESTS ====================
+
+    @Test
+    fun `test insert_after operation`() {
+        val testFile = File(testBaseDir, "test.kt")
+        testFile.writeText("""
+            fun example() {
+                val x = 1
+            }
+        """.trimIndent())
+
+        val patch = FilePatch(
+            file = "test.kt",
+            description = "Add logging",
+            action = PatchAction.InsertAfter(
+                marker = "val x = 1",
+                content = "    println(\"x = \$x\")",
+                matchOptions = MatchOptions(mode = MatchMode.NORMALIZED)
+            )
+        )
+
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        val lines = testFile.readText().lines()
+        val xIndex = lines.indexOfFirst { it.contains("val x = 1") }
+        assertTrue(xIndex >= 0)
+        assertTrue(lines[xIndex + 1].contains("println"))
+    }
+
+    @Test
+    fun `test insert_before operation`() {
+        val testFile = File(testBaseDir, "test.kt")
+        testFile.writeText("""
+            fun example() {
                 return result
             }
-            REPLACE >>>
-            === PATCH END ===
-        """.trimIndent()
+        """.trimIndent())
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val patch = FilePatch(
+            file = "test.kt",
+            description = "Add validation",
+            action = PatchAction.InsertBefore(
+                marker = "return result",
+                content = "    check(result != null)",
+                matchOptions = MatchOptions(mode = MatchMode.NORMALIZED)
+            )
+        )
 
-        val action = patches[0].action as PatchAction.Replace
-        assertTrue(action.find.contains("val x = 10"))
-        assertTrue(action.find.contains("val y = 20"))
-        assertTrue(action.replace.contains("val result = 10 + 20"))
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        val lines = testFile.readText().lines()
+        val returnIndex = lines.indexOfFirst { it.contains("return result") }
+        assertTrue(returnIndex > 0)
+        assertTrue(lines[returnIndex - 1].contains("check"))
+    }
+
+    // ==================== DELETE TESTS ====================
+
+    @Test
+    fun `test delete operation`() {
+        val testFile = File(testBaseDir, "test.kt")
+        testFile.writeText("""
+            val x = 1
+            val y = 2
+            val z = 3
+        """.trimIndent())
+
+        val patch = FilePatch(
+            file = "test.kt",
+            description = "Remove middle line",
+            action = PatchAction.Delete(
+                find = "val y = 2",
+                matchOptions = MatchOptions(mode = MatchMode.NORMALIZED)
+            )
+        )
+
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        val newContent = testFile.readText()
+        assertTrue(newContent.contains("val x = 1"))
+        assertFalse(newContent.contains("val y = 2"))
+        assertTrue(newContent.contains("val z = 3"))
+    }
+
+    // ==================== FILE OPERATIONS TESTS ====================
+
+    @Test
+    fun `test create_file operation`() {
+        val patch = FilePatch(
+            file = "newfile.kt",
+            description = "Create new file",
+            action = PatchAction.CreateFile(
+                content = "package com.example\n\nclass NewClass"
+            )
+        )
+
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        val newFile = File(testBaseDir, "newfile.kt")
+        assertTrue(newFile.exists())
+        assertTrue(newFile.readText().contains("class NewClass"))
     }
 
     @Test
-    fun `parses REGEX mode`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            MATCH_MODE: regex
-            <<< FIND
-            const val VERSION = "\d+\.\d+\.\d+"
-            FIND >>>
-            <<< REPLACE
-            const val VERSION = "2.0.0"
-            REPLACE >>>
-            === PATCH END ===
-        """.trimIndent()
+    fun `test delete_file operation`() {
+        val testFile = File(testBaseDir, "todelete.kt")
+        testFile.writeText("content")
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val patch = FilePatch(
+            file = "todelete.kt",
+            description = "Delete file",
+            action = PatchAction.DeleteFile()
+        )
 
-        val action = patches[0].action as PatchAction.Replace
-        assertEquals(MatchMode.REGEX, action.matchOptions.mode)
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        assertFalse(testFile.exists())
     }
 
     @Test
-    fun `parses CONTAINS mode`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            MATCH_MODE: contains
-            <<< FIND
-            fun calculate
-            FIND >>>
-            <<< REPLACE
-            fun calculate() { }
-            REPLACE >>>
-            === PATCH END ===
-        """.trimIndent()
+    fun `test move_file operation`() {
+        val testFile = File(testBaseDir, "old.kt")
+        testFile.writeText("content")
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val patch = FilePatch(
+            file = "old.kt",
+            description = "Move file",
+            action = PatchAction.MoveFile(
+                destination = "new.kt",
+                overwrite = false
+            )
+        )
 
-        val action = patches[0].action as PatchAction.Replace
-        assertEquals(MatchMode.CONTAINS, action.matchOptions.mode)
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = false)
+
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        assertFalse(testFile.exists())
+        assertTrue(File(testBaseDir, "new.kt").exists())
     }
 
-    @Test
-    fun `parses LINE_RANGE mode`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: delete
-            MATCH_MODE: line_range
-            <<< FIND
-            10-15
-            FIND >>>
-            === PATCH END ===
-        """.trimIndent()
-
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
-
-        val action = patches[0].action as PatchAction.Delete
-        assertEquals(MatchMode.LINE_RANGE, action.matchOptions.mode)
-    }
+    // ==================== DRY RUN TESTS ====================
 
     @Test
-    fun `default values when parameters not specified`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            MATCH_MODE: fuzzy
-            <<< FIND
-            test
-            FIND >>>
-            <<< REPLACE
-            replaced
-            REPLACE >>>
-            === PATCH END ===
-        """.trimIndent()
+    fun `test dry_run does not modify file`() {
+        val testFile = File(testBaseDir, "test.kt")
+        val originalContent = "val x = 1"
+        testFile.writeText(originalContent)
 
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
+        val patch = FilePatch(
+            file = "test.kt",
+            description = "Test dry run",
+            action = PatchAction.Replace(
+                find = "val x = 1",
+                replace = "val x = 999",
+                matchOptions = MatchOptions(mode = MatchMode.NORMALIZED)
+            )
+        )
 
-        val action = patches[0].action as PatchAction.Replace
-        // Проверяем значения по умолчанию
-        assertEquals(1.0, action.matchOptions.fuzzyThreshold)
-        assertEquals(false, action.matchOptions.ignoreComments)
-        assertEquals(true, action.matchOptions.ignoreEmptyLines)
-        assertEquals(true, action.matchOptions.caseSensitive)
-    }
+        val executor = PatchExecutor(testBaseDir)
+        val result = executor.execute(patch, dryRun = true)
 
-    @Test
-    fun `semantic defaults when parameters not specified`() {
-        val patchContent = """
-            === PATCH START ===
-            NAME: Test
-            ---
-            --- FILE: Test.kt ---
-            ACTION: replace
-            MATCH_MODE: semantic
-            <<< FIND
-            fun test()
-            FIND >>>
-            <<< REPLACE
-            fun test() { }
-            REPLACE >>>
-            === PATCH END ===
-        """.trimIndent()
-
-        val parser = PatchParser()
-        val (_, patches) = parser.parse(patchContent)
-
-        val action = patches[0].action as PatchAction.Replace
-        // Проверяем значения по умолчанию для SEMANTIC
-        assertEquals(true, action.matchOptions.matchFunctionName)
-        assertEquals(true, action.matchOptions.matchClassName)
-        assertEquals(true, action.matchOptions.matchParameterTypes)
-        assertEquals(false, action.matchOptions.matchParameterNames)
-        assertEquals(true, action.matchOptions.matchReturnType)
-        assertEquals(false, action.matchOptions.matchModifiers)
+        assertEquals(PatchStatus.SUCCESS, result.status)
+        assertEquals(originalContent, testFile.readText(), "File should not be modified in dry run")
     }
 }

@@ -33,34 +33,36 @@ class PatchExecutor(private val baseDir: File) {
     }
 
     private fun normalizeForFuzzy(
-        text: String, 
-        ignoreComments: Boolean, 
+        text: String,
+        ignoreComments: Boolean,
         ignoreEmptyLines: Boolean
     ): String {
         var result = text
-        
+
         if (ignoreComments) {
             result = removeComments(result)
         }
-        
-        // Нормализуем каждую строку
+
         val lines = result.lines()
             .map { line ->
-                // Заменяем tabs на spaces
                 var normalized = line.replace("\t", "    ")
-                // Убираем лишние пробелы (несколько пробелов подряд → один пробел)
+
+                // Добавляем пробелы вокруг операторов
+                normalized = normalized.replace(Regex("([=+\\-*/:<>!])"), " $1 ")
+
+                // Убираем множественные пробелы
                 normalized = normalized.replace(Regex("\\s+"), " ")
-                // Убираем trailing и leading пробелы
+
+                // Убираем пробелы в начале и конце
                 normalized.trim()
             }
-        
-        // Убираем пустые строки если нужно
+
         val filteredLines = if (ignoreEmptyLines) {
             lines.filter { it.isNotBlank() }
         } else {
             lines
         }
-        
+
         return filteredLines.joinToString("\n")
     }
     /**
@@ -313,7 +315,7 @@ class PatchExecutor(private val baseDir: File) {
             beforeLines.joinToString(lineEnding).length + (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
         return MatchResult(offset, matchText.length, matchText)
     }
-    private fun findMatch(
+    fun findMatch(
         content: String,
         searchPattern: String,
         options: MatchOptions,
