@@ -8,8 +8,9 @@ import io.ktor.server.routing.*
 import com.robustpatcher.models.*
 import com.robustpatcher.services.PatcherService
 
-fun Route.patchRoutes() {
-    val patcherService = PatcherService()
+fun Route.patchRoutes(
+patcherService: PatcherService = PatcherService()
+) {
     
     route("/api/patch") {
         post("/apply") {

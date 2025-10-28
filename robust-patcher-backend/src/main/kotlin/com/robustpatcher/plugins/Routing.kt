@@ -4,6 +4,7 @@ import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import com.robustpatcher.routes.patchRoutes
+import com.robustpatcher.services.PatcherService
 
 fun Application.configureRouting() {
     routing {
@@ -15,6 +16,6 @@ fun Application.configureRouting() {
             call.respondText("OK")
         }
         
-        patchRoutes()
+        patchRoutes(PatcherService())
     }
 }

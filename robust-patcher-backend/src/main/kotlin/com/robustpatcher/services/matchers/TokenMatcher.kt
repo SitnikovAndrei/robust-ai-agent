@@ -1,4 +1,4 @@
-package com.robustpatcher.services
+package com.robustpatcher.services.matchers
 
 import com.robustpatcher.models.MatchOptions
 import com.robustpatcher.models.MatchResult
@@ -94,13 +94,8 @@ class TokenMatcher {
         pattern: String,
         options: MatchOptions
     ): MatchResult? {
-        println("=== TOKENIZED MATCH DEBUG ===")
-        println("Pattern:\n$pattern")
-        println("\nContent (first 300 chars):\n${content.take(300)}")
-
         val patternTokens = extractTokens(pattern, options)
-        println("\nPattern tokens: $patternTokens")
-        println("Pattern tokens count: ${patternTokens.size}")
+        if (patternTokens.isEmpty()) return null
 
         val windowSize = if (options.tokenWindowSize > 0) {
             options.tokenWindowSize
@@ -108,44 +103,24 @@ class TokenMatcher {
             patternTokens.size
         }
 
-        println("Window size: $windowSize")
-
         val contentTokens = extractTokensWithPositions(content, options)
-        println("Content tokens count: ${contentTokens.size}")
-        println("Content tokens (all): ${contentTokens.map { it.token }}")
 
         if (contentTokens.size < windowSize) {
-            println("Not enough tokens in content!")
             return null
         }
 
         for (i in 0..contentTokens.size - windowSize) {
             val windowTokens = contentTokens.subList(i, i + windowSize)
 
-            println("\nChecking window $i: ${windowTokens.map { it.token }}")
-
-            var match = true
-            for (j in patternTokens.indices) {
-                if (patternTokens[j] != windowTokens[j].token) {
-                    println("  Mismatch at position $j: '${patternTokens[j]}' != '${windowTokens[j].token}'")
-                    match = false
-                    break
-                }
-            }
-
-            if (match) {
-                println("✅ MATCH FOUND at window $i!")
+            if (tokensExactMatch(patternTokens, windowTokens.map { it.token })) {
                 val firstToken = windowTokens.first()
                 val lastToken = windowTokens.last()
                 val matchedText = content.substring(firstToken.startPos, lastToken.endPos)
-
-                println("Matched text: '$matchedText'")
 
                 return MatchResult(firstToken.startPos, matchedText.length, matchedText)
             }
         }
 
-        println("❌ No match found")
         return null
     }
 
@@ -153,6 +128,7 @@ class TokenMatcher {
         if (tokens1.size != tokens2.size) return false
         return tokens1.indices.all { i -> tokens1[i] == tokens2[i] }
     }
+
 
     /**
      * Fuzzy совпадение по токенам (с порогом similarity)
@@ -163,16 +139,8 @@ class TokenMatcher {
         options: MatchOptions,
         threshold: Double = 0.8
     ): MatchResult? {
-        println("=== TOKENIZED FUZZY DEBUG ===")
-        println("Threshold: $threshold")
-
         val patternTokens = extractTokens(pattern, options)
-        println("Pattern tokens: $patternTokens (count=${patternTokens.size})")
-
-        if (patternTokens.isEmpty()) {
-            println("Pattern tokens empty!")
-            return null
-        }
+        if (patternTokens.isEmpty()) return null
 
         val baseWindowSize = if (options.tokenWindowSize > 0) {
             options.tokenWindowSize

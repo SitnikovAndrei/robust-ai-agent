@@ -1,32 +1,44 @@
 package com.robustpatcher.services
 
 import com.robustpatcher.models.*
+import com.robustpatcher.services.matchers.TokenMatcher
 import java.io.File
 
-class PatcherService {
-    
+class PatcherService(
+    private val patchParser: PatchParser = PatchParser(),
+    private val textNormalizer: TextNormalizer = TextNormalizer(),
+    private val levenshteinCalculator: LevenshteinCalculator = LevenshteinCalculator(),
+    private val signatureParser: SignatureParser = SignatureParser(),
+    private val tokenMatcher: TokenMatcher = TokenMatcher()
+) {
+
     fun applyPatch(
         patchContent: String,
         baseDir: String,
         dryRun: Boolean
     ): PatchResponse {
         val baseDirFile = File(baseDir).canonicalFile
-        
-        // Проверка безопасности
+
+// Проверка безопасности
         if (!baseDirFile.exists()) {
             throw IllegalArgumentException("Base directory does not exist: $baseDir")
         }
-        
-        val parser = PatchParser()
-        val (metadata, patches) = parser.parse(patchContent)
-        
-        val executor = PatchExecutor(baseDirFile)
+
+        val (metadata, patches) = patchParser.parse(patchContent)
+
+        val executor = PatchExecutor(
+            baseDirFile,
+            textNormalizer,
+            levenshteinCalculator,
+            signatureParser,
+            tokenMatcher
+        )
         val results = patches.map { patch ->
             executor.execute(patch, dryRun)
         }
-        
+
         val stats = calculateStats(results)
-        
+
         return PatchResponse(
             success = true,
             metadata = MetadataResponse(
@@ -51,12 +63,11 @@ class PatcherService {
             )
         )
     }
-    
+
     fun validatePatch(patchContent: String): Map<String, Any> {
         return try {
-            val parser = PatchParser()
-            val (metadata, patches) = parser.parse(patchContent)
-            
+            val (metadata, patches) = patchParser.parse(patchContent)
+
             mapOf(
                 "valid" to true,
                 "metadata" to mapOf(
@@ -74,12 +85,12 @@ class PatcherService {
             )
         }
     }
-    
+
     private fun calculateStats(results: List<FilePatchResult>): StatsResponse {
         var success = 0
         var skipped = 0
         var failed = 0
-        
+
         results.forEach { result ->
             when (result.status) {
                 PatchStatus.SUCCESS -> success++
@@ -87,7 +98,7 @@ class PatcherService {
                 PatchStatus.FAILED, PatchStatus.FILE_NOT_FOUND -> failed++
             }
         }
-        
+
         return StatsResponse(success, skipped, failed)
     }
 }
