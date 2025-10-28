@@ -97,33 +97,25 @@ class PatchParser {
                     }
                     i++
                 }
+
                 val blocks = mutableMapOf<String, String>()
                 while (i < lines.size) {
                     val blockLine = lines[i].trim()
                     if (blockLine.startsWith("---") || blockLine == "=== PATCH END ===") break
 
-                    // Поддержка нового формата @@ BLOCK_TYPE
+                    // Поддержка формата @@ BLOCK_TYPE
                     if (blockLine.startsWith("@@")) {
                         val blockType = blockLine.substring(2).trim()
+                        if (blockType.isEmpty()) {
+                            // Это закрывающий @@ - пропускаем
+                            i++
+                            continue
+                        }
                         i++
                         val blockContent = StringBuilder()
                         while (i < lines.size) {
                             val contentLine = lines[i]
                             if (contentLine.trim() == "@@") break
-                            blockContent.append(contentLine).append("\n")
-                            i++
-                        }
-                        blocks[blockType] = blockContent.toString().trimEnd()
-                        i++
-                    }
-                    // Поддержка старого формата <<< >>> для обратной совместимости
-                    else if (blockLine.startsWith("<<<")) {
-                        val blockType = blockLine.substring(3).trim()
-                        i++
-                        val blockContent = StringBuilder()
-                        while (i < lines.size) {
-                            val contentLine = lines[i]
-                            if (contentLine.trim().endsWith("$blockType >>>")) break
                             blockContent.append(contentLine).append("\n")
                             i++
                         }
