@@ -49,50 +49,39 @@ class PatchParser {
 
                 while (i < lines.size) {
                     val paramLine = lines[i].trim()
-                    if (paramLine.startsWith("<<<")) break
+                    if (paramLine.startsWith("@@")) break  // Остановиться перед блоками
                     when {
                         paramLine.startsWith("ACTION:") -> action = paramLine.substringAfter(":").trim()
                         paramLine.startsWith("DESCRIPTION:") -> description = paramLine.substringAfter(":").trim()
                         paramLine.startsWith("MATCH_MODE:") -> params["MATCH_MODE"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("FUZZY_THRESHOLD:") -> params["FUZZY_THRESHOLD"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("IGNORE_COMMENTS:") -> params["IGNORE_COMMENTS"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("IGNORE_EMPTY_LINES:") -> params["IGNORE_EMPTY_LINES"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("CASE_SENSITIVE:") -> params["CASE_SENSITIVE"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("MATCH_FUNCTION_NAME:") -> params["MATCH_FUNCTION_NAME"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("MATCH_CLASS_NAME:") -> params["MATCH_CLASS_NAME"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("MATCH_PARAMETER_TYPES:") -> params["MATCH_PARAMETER_TYPES"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("MATCH_PARAMETER_NAMES:") -> params["MATCH_PARAMETER_NAMES"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("MATCH_RETURN_TYPE:") -> params["MATCH_RETURN_TYPE"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("MATCH_MODIFIERS:") -> params["MATCH_MODIFIERS"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("ANCHOR_MATCH_MODE:") -> params["ANCHOR_MATCH_MODE"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("ANCHOR_SCOPE:") -> params["ANCHOR_SCOPE"] =
                             paramLine.substringAfter(":").trim()
-
                         paramLine.startsWith("ANCHOR_SEARCH_DEPTH:") -> params["ANCHOR_SEARCH_DEPTH"] =
+                            paramLine.substringAfter(":").trim()
+                        paramLine.startsWith("OVERWRITE:") -> params["OVERWRITE"] =
                             paramLine.substringAfter(":").trim()
                     }
                     i++
