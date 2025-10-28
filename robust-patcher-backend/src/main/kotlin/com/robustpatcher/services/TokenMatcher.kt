@@ -94,8 +94,13 @@ class TokenMatcher {
         pattern: String,
         options: MatchOptions
     ): MatchResult? {
+        println("=== TOKENIZED MATCH DEBUG ===")
+        println("Pattern:\n$pattern")
+        println("\nContent (first 300 chars):\n${content.take(300)}")
+
         val patternTokens = extractTokens(pattern, options)
-        if (patternTokens.isEmpty()) return null
+        println("\nPattern tokens: $patternTokens")
+        println("Pattern tokens count: ${patternTokens.size}")
 
         val windowSize = if (options.tokenWindowSize > 0) {
             options.tokenWindowSize
@@ -103,23 +108,44 @@ class TokenMatcher {
             patternTokens.size
         }
 
-        val contentTokens = extractTokensWithPositions(content, options)
-        if (contentTokens.size < windowSize) return null
+        println("Window size: $windowSize")
 
-        // Скользящее окно
+        val contentTokens = extractTokensWithPositions(content, options)
+        println("Content tokens count: ${contentTokens.size}")
+        println("Content tokens (all): ${contentTokens.map { it.token }}")
+
+        if (contentTokens.size < windowSize) {
+            println("Not enough tokens in content!")
+            return null
+        }
+
         for (i in 0..contentTokens.size - windowSize) {
             val windowTokens = contentTokens.subList(i, i + windowSize)
 
-            // ТОЧНОЕ СОВПАДЕНИЕ - без Levenshtein!
-            if (tokensExactMatch(patternTokens, windowTokens.map { it.token })) {
+            println("\nChecking window $i: ${windowTokens.map { it.token }}")
+
+            var match = true
+            for (j in patternTokens.indices) {
+                if (patternTokens[j] != windowTokens[j].token) {
+                    println("  Mismatch at position $j: '${patternTokens[j]}' != '${windowTokens[j].token}'")
+                    match = false
+                    break
+                }
+            }
+
+            if (match) {
+                println("✅ MATCH FOUND at window $i!")
                 val firstToken = windowTokens.first()
                 val lastToken = windowTokens.last()
                 val matchedText = content.substring(firstToken.startPos, lastToken.endPos)
+
+                println("Matched text: '$matchedText'")
 
                 return MatchResult(firstToken.startPos, matchedText.length, matchedText)
             }
         }
 
+        println("❌ No match found")
         return null
     }
 
@@ -137,8 +163,16 @@ class TokenMatcher {
         options: MatchOptions,
         threshold: Double = 0.8
     ): MatchResult? {
+        println("=== TOKENIZED FUZZY DEBUG ===")
+        println("Threshold: $threshold")
+
         val patternTokens = extractTokens(pattern, options)
-        if (patternTokens.isEmpty()) return null
+        println("Pattern tokens: $patternTokens (count=${patternTokens.size})")
+
+        if (patternTokens.isEmpty()) {
+            println("Pattern tokens empty!")
+            return null
+        }
 
         val baseWindowSize = if (options.tokenWindowSize > 0) {
             options.tokenWindowSize
@@ -146,14 +180,18 @@ class TokenMatcher {
             patternTokens.size
         }
 
+        println("Base window size: $baseWindowSize")
+
         val contentTokens = extractTokensWithPositions(content, options)
+        println("Content tokens: ${contentTokens.map { it.token }} (count=${contentTokens.size})")
 
         var bestMatch: MatchResult? = null
         var bestSimilarity = 0.0
 
-        // Скользящее окно с вариацией размера ±20%
         val minWindow = maxOf(1, (baseWindowSize * 0.8).toInt())
         val maxWindow = (baseWindowSize * 1.2).toInt()
+
+        println("Window range: $minWindow - $maxWindow")
 
         for (i in contentTokens.indices) {
             for (currentWindowSize in minWindow..minOf(maxWindow, contentTokens.size - i)) {
@@ -165,7 +203,10 @@ class TokenMatcher {
                     threshold
                 )
 
+                println("Window [$i, size=$currentWindowSize]: similarity=$similarity")
+
                 if (similarity >= threshold && similarity > bestSimilarity) {
+                    println("  ✅ New best match! similarity=$similarity")
                     val firstToken = windowTokens.first()
                     val lastToken = windowTokens.last()
                     val matchedText = content.substring(firstToken.startPos, lastToken.endPos)
@@ -174,6 +215,12 @@ class TokenMatcher {
                     bestSimilarity = similarity
                 }
             }
+        }
+
+        if (bestMatch != null) {
+            println("✅ FINAL MATCH: similarity=$bestSimilarity")
+        } else {
+            println("❌ NO MATCH FOUND")
         }
 
         return bestMatch
@@ -185,20 +232,46 @@ class TokenMatcher {
         tokens2: List<String>,
         threshold: Double
     ): Double {
+        println("    calculateTokenSequenceSimilarity:")
+        println("      tokens1: $tokens1")
+        println("      tokens2: $tokens2")
+        println("      threshold: $threshold")
+
         val len1 = tokens1.size
         val len2 = tokens2.size
 
         if (len1 == 0 && len2 == 0) return 1.0
         if (len1 == 0 || len2 == 0) return 0.0
 
+        if (threshold >= 1.0) {
+            val result = if (tokens1 == tokens2) 1.0 else 0.0
+            println("      threshold>=1.0, result=$result")
+            return result
+        }
+
         val maxLen = maxOf(len1, len2)
         val maxAllowedDistance = ((1.0 - threshold) * maxLen).toInt()
 
+        println("      maxLen=$maxLen, maxAllowedDistance=$maxAllowedDistance")
+
+        if (maxAllowedDistance < 1) {
+            val result = if (tokens1 == tokens2) 1.0 else 0.0
+            println("      maxAllowedDistance<1, result=$result")
+            return result
+        }
+
         val distance = levenshteinDistanceTokens(tokens1, tokens2, maxAllowedDistance)
 
-        if (distance > maxAllowedDistance) return 0.0
+        println("      distance=$distance")
 
-        return 1.0 - (distance.toDouble() / maxLen)
+        if (distance > maxAllowedDistance) {
+            println("      distance>maxAllowed, returning 0.0")
+            return 0.0
+        }
+
+        val similarity = 1.0 - (distance.toDouble() / maxLen)
+        println("      final similarity=$similarity")
+        return similarity
     }
 
     private fun levenshteinDistanceTokens(

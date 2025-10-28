@@ -602,7 +602,7 @@ class PatchExecutor(private val baseDir: File) {
                     )
                 }
                 val finalReplace = prepareForSearch(action.replace, lineEnding)
-                content.replaceRange(matchResult.index, matchResult.index + matchResult.length, finalReplace)
+                replaceMatchPreservingIndent(content, matchResult, finalReplace, lineEnding)
             }
 
             is PatchAction.InsertBefore -> {
@@ -678,5 +678,51 @@ class PatchExecutor(private val baseDir: File) {
             is PatchAction.DeleteFile -> "delete_file"
             is PatchAction.MoveFile -> "move_file"
         }
+    }
+
+    private fun replaceMatchPreservingIndent(
+        content: String,
+        matchResult: MatchResult,
+        replacement: String,
+        lineEnding: String
+    ): String {
+        // Определяем сколько строк в matched тексте
+        val matchedLines = matchResult.matchedText.lines()
+
+        // Находим начало первой строки
+        val firstLineStart = if (matchResult.index == 0) {
+            0
+        } else {
+            val lastNewline = content.lastIndexOf(lineEnding, matchResult.index - 1)
+            if (lastNewline < 0) 0 else lastNewline + lineEnding.length
+        }
+
+        // Находим конец последней строки match
+        val matchEnd = matchResult.index + matchResult.length
+        val lastLineEnd = content.indexOf(lineEnding, matchEnd - 1).let {
+            if (it < 0 || it < matchEnd) {
+                // Если \n не найден после match, значит match до конца строки
+                val nextNewline = content.indexOf(lineEnding, matchEnd)
+                if (nextNewline < 0) content.length else nextNewline
+            } else {
+                it
+            }
+        }
+
+        // Извлекаем первую строку для определения отступа
+        val firstLine = content.substring(firstLineStart, minOf(content.indexOf(lineEnding, firstLineStart).let { if (it < 0) content.length else it }, content.length))
+        val indent = firstLine.takeWhile { it.isWhitespace() }
+
+        // Применяем отступ ко всем строкам replacement
+        val replacementLines = replacement.lines()
+        val indentedReplacement = replacementLines.mapIndexed { index, line ->
+            if (line.isBlank()) {
+                line
+            } else {
+                indent + line.trimStart()
+            }
+        }.joinToString(lineEnding)
+
+        return content.replaceRange(firstLineStart, lastLineEnd, indentedReplacement)
     }
 }
