@@ -1,6 +1,7 @@
 package com.robustpatcher.services
 
 import com.robustpatcher.models.*
+import com.robustpatcher.services.TokenMatcher.TokenWithPosition
 import java.io.File
 
 class PatchExecutor(private val baseDir: File) {
@@ -65,37 +66,72 @@ class PatchExecutor(private val baseDir: File) {
 
         return filteredLines.joinToString("\n")
     }
+
+    /**
+     * Levenshtein с ранним выходом при превышении порога
+     */
+    private fun levenshteinDistanceWithThreshold(
+        s1: String,
+        s2: String,
+        maxDistance: Int
+    ): Int {
+        val len1 = s1.length
+        val len2 = s2.length
+
+        if (len1 == 0) return len2
+        if (len2 == 0) return len1
+
+        // Быстрая проверка: если разница длин > maxDistance, сразу выход
+        if (Math.abs(len1 - len2) > maxDistance) {
+            return maxDistance + 1
+        }
+
+        val (shorter, longer) = if (len1 <= len2) s1 to s2 else s2 to s1
+        val shortLen = shorter.length
+        val longLen = longer.length
+
+        var prevRow = IntArray(shortLen + 1) { it }
+        var currRow = IntArray(shortLen + 1)
+
+        for (i in 1..longLen) {
+            currRow[0] = i
+            var minInRow = i  // Минимум в текущей строке
+
+            for (j in 1..shortLen) {
+                val cost = if (longer[i - 1] == shorter[j - 1]) 0 else 1
+                currRow[j] = minOf(
+                    prevRow[j] + 1,
+                    currRow[j - 1] + 1,
+                    prevRow[j - 1] + cost
+                )
+
+                if (currRow[j] < minInRow) {
+                    minInRow = currRow[j]
+                }
+            }
+
+            // Early exit: если минимум в строке > maxDistance, дальше бесполезно
+            if (minInRow > maxDistance) {
+                return maxDistance + 1
+            }
+
+            val temp = prevRow
+            prevRow = currRow
+            currRow = temp
+        }
+
+        return prevRow[shortLen]
+    }
+
+
     /**
      * Вычисляет расстояние Левенштейна между двумя строками
      */
-    private fun levenshteinDistance(s1: String, s2: String): Int {
-        val len1 = s1.length
-        val len2 = s2.length
-        
-        // Оптимизация для пустых строк
-        if (len1 == 0) return len2
-        if (len2 == 0) return len1
-        
-        // Матрица расстояний
-        val dp = Array(len1 + 1) { IntArray(len2 + 1) }
-        
-        // Инициализация первой строки и столбца
-        for (i in 0..len1) dp[i][0] = i
-        for (j in 0..len2) dp[0][j] = j
-        
-        // Вычисление расстояний
-        for (i in 1..len1) {
-            for (j in 1..len2) {
-                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,      // deletion
-                    dp[i][j - 1] + 1,      // insertion
-                    dp[i - 1][j - 1] + cost // substitution
-                )
-            }
-        }
-        
-        return dp[len1][len2]
+    private fun levenshteinDistance(s1: String, s2: String, threshold: Double = 0.8): Int {
+        val maxLen = maxOf(s1.length, s2.length)
+        val maxDistance = ((1.0 - threshold) * maxLen).toInt()
+
+        return levenshteinDistanceWithThreshold(s1, s2, maxDistance)
     }
     
     /**
@@ -126,6 +162,8 @@ class PatchExecutor(private val baseDir: File) {
         options: MatchOptions,
         lineEnding: String
     ): MatchResult? {
+
+        val tokenMatcher = TokenMatcher();
         val normalizedPattern = normalizeForFuzzy(pattern, options.ignoreComments, options.ignoreEmptyLines)
         val s1 = if (options.caseSensitive) normalizedPattern else normalizedPattern.lowercase()
 
@@ -236,6 +274,7 @@ class PatchExecutor(private val baseDir: File) {
         }
         return null
     }
+
     private fun findAnchorContext(content: String, anchor: AnchorOptions, lineEnding: String): String? {
         val anchorIndex = when (anchor.matchMode) {
             MatchMode.NORMALIZED -> {
@@ -327,6 +366,7 @@ class PatchExecutor(private val baseDir: File) {
         return when (options.mode) {
             MatchMode.NORMALIZED -> findNormalizedMatch(content, searchPattern, options, lineEnding)
             MatchMode.FUZZY -> findFuzzyMatch(searchContent, searchPattern, options, lineEnding)
+            MatchMode.TOKENIZED -> findTokenizedMatch(searchContent, searchPattern, options)
             MatchMode.SEMANTIC -> findSemanticMatch(searchContent, searchPattern, options)
             MatchMode.REGEX -> {
                 val pattern =
@@ -350,7 +390,26 @@ class PatchExecutor(private val baseDir: File) {
         }
     }
 
-    data class MatchResult(val index: Int, val length: Int, val matchedText: String)
+    private fun findTokenizedMatch(
+        content: String,
+        pattern: String,
+        options: MatchOptions
+    ): MatchResult? {
+        val tokenMatcher = TokenMatcher()
+
+        // Решаем использовать точное или fuzzy совпадение
+        val result = if (options.fuzzyThreshold >= 1.0) {
+            // Точное совпадение по токенам
+            tokenMatcher.findTokenizedMatch(content, pattern, options)
+        } else {
+            // Fuzzy совпадение по токенам
+            tokenMatcher.findTokenizedMatchFuzzy(content, pattern, options, options.fuzzyThreshold)
+        }
+
+        return result?.let {
+            MatchResult(it.index, it.length, it.matchedText)
+        }
+    }
 
     fun execute(filePatch: FilePatch, dryRun: Boolean): FilePatchResult {
         val file = File(baseDir, filePatch.file)

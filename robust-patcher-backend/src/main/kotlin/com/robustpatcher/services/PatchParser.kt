@@ -181,6 +181,7 @@ class PatchParser {
         val matchMode = when (params["MATCH_MODE"]?.lowercase()) {
             "normalized" -> MatchMode.NORMALIZED
             "fuzzy" -> MatchMode.FUZZY
+            "tokenized" -> MatchMode.TOKENIZED
             "semantic" -> MatchMode.SEMANTIC
             "regex" -> MatchMode.REGEX
             "contains" -> MatchMode.CONTAINS
@@ -191,6 +192,9 @@ class PatchParser {
         val ignoreComments = params["IGNORE_COMMENTS"]?.lowercase() == "true"
         val ignoreEmptyLines = params["IGNORE_EMPTY_LINES"]?.lowercase() != "false"
         val caseSensitive = params["CASE_SENSITIVE"]?.lowercase() != "false"
+
+        // TOKENIZED параметры
+        val tokenWindowSize = params["TOKEN_WINDOW_SIZE"]?.toIntOrNull() ?: 0
 
         val matchFunctionName = params["MATCH_FUNCTION_NAME"]?.lowercase() != "false"
         val matchClassName = params["MATCH_CLASS_NAME"]?.lowercase() != "false"
@@ -227,6 +231,7 @@ class PatchParser {
             ignoreComments = ignoreComments,
             ignoreEmptyLines = ignoreEmptyLines,
             caseSensitive = caseSensitive,
+            tokenWindowSize = tokenWindowSize,
             matchFunctionName = matchFunctionName,
             matchClassName = matchClassName,
             matchParameterTypes = matchParameterTypes,

@@ -8,12 +8,13 @@ data class PatchMetadata(
 )
 
 enum class MatchMode {
-    NORMALIZED,  // Нормализованное совпадение (FUZZY с threshold=1.0)
-    FUZZY,       // Нечёткое совпадение с настраиваемым порогом
-    SEMANTIC,    // Сопоставление по сигнатуре
-    REGEX,       // Регулярное выражение
-    CONTAINS,    // Содержит подстроку
-    LINE_RANGE   // Диапазон строк
+    NORMALIZED,   // Нормализация пробелов, точное совпадение
+    FUZZY,        // Нормализация + Levenshtein
+    TOKENIZED,    // Токенизация (убирает ВСЕ переносы и пробелы)
+    SEMANTIC,     // По сигнатуре
+    REGEX,
+    CONTAINS,
+    LINE_RANGE
 }
 
 enum class AnchorScope {
@@ -47,6 +48,9 @@ data class MatchOptions(
     val matchParameterNames: Boolean = false,     // Имена параметров
     val matchReturnType: Boolean = true,          // Тип возвращаемого значения
     val matchModifiers: Boolean = false,          // Модификаторы (public, private, etc)
+
+    // TOKENIZED параметры
+    val tokenWindowSize: Int = 0,  // 0 = автоматически из pattern
     
     // ANCHOR
     val anchor: AnchorOptions? = null
