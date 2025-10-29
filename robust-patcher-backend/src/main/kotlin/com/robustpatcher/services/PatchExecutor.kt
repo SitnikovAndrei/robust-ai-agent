@@ -326,7 +326,7 @@ class PatchExecutor(
             ?: return null
 
         val finalReplace = textNormalizer.prepareForSearch(action.replace, lineEnding)
-        return replaceMatchPreservingIndent(content, matchResult, finalReplace, lineEnding)
+        return replaceMatch(content, matchResult, finalReplace, lineEnding)
     }
 
     private fun processInsertBefore(
@@ -365,7 +365,7 @@ class PatchExecutor(
         val matchResult = findMatch(content, action.find, action.matchOptions, lineEnding)
             ?: return null
 
-        return content.replaceRange(matchResult.index, matchResult.index + matchResult.length, "")
+        return content.replaceRange(matchResult.index, matchResult.index + matchResult.length + lineEnding.length, "")
     }
 
     // ============================================
@@ -553,7 +553,7 @@ class PatchExecutor(
         }
     }
 
-    private fun replaceMatchPreservingIndent(
+    private fun replaceMatch(
         content: String,
         matchResult: MatchResult,
         replacement: String,
@@ -578,22 +578,7 @@ class PatchExecutor(
             }
         }
 
-        // Извлекаем первую строку для определения отступа
-        val firstLine = content.substring(
-            firstLineStart,
-            minOf(
-                content.indexOf(lineEnding, firstLineStart).let {
-                    if (it < 0) content.length else it
-                },
-                content.length
-            )
-        )
-        val indent = textNormalizer.extractIndent(firstLine)
-
-        // Применяем отступ ко всем строкам replacement
-        val indentedReplacement = textNormalizer.applyIndent(replacement, indent, lineEnding)
-
-        return content.replaceRange(firstLineStart, lastLineEnd, indentedReplacement)
+        return content.replaceRange(firstLineStart, lastLineEnd, replacement)
     }
 
     private fun getActionName(action: PatchAction): String {
