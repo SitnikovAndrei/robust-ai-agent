@@ -1,6 +1,8 @@
 package com.robustpatcher.services
 
 import com.robustpatcher.models.*
+import com.robustpatcher.services.matchers.FuzzyMatcher
+import com.robustpatcher.services.matchers.NormalizedMatcher
 import com.robustpatcher.services.matchers.TokenMatcher
 import java.io.File
 
@@ -18,7 +20,9 @@ class PatchExecutor(
     private val textNormalizer: TextNormalizer = TextNormalizer(),
     private val levenshteinCalculator: LevenshteinCalculator = LevenshteinCalculator(),
     private val signatureParser: SignatureParser = SignatureParser(),
-    private val tokenMatcher: TokenMatcher = TokenMatcher()
+    private val tokenMatcher: TokenMatcher = TokenMatcher(),
+    private val normalizrMatcher: NormalizedMatcher = NormalizedMatcher(textNormalizer),
+    private val fuzzyMatcher: FuzzyMatcher = FuzzyMatcher(textNormalizer, levenshteinCalculator)
 ) {
 
     // ============================================
@@ -54,9 +58,9 @@ class PatchExecutor(
         } ?: content
 
         return when (options.mode) {
-            MatchMode.NORMALIZED -> findNormalizedMatch(searchContent, searchPattern, options, lineEnding)
-            MatchMode.FUZZY -> findFuzzyMatch(searchContent, searchPattern, options, lineEnding)
-            MatchMode.TOKENIZED -> findTokenizedMatch(searchContent, searchPattern, options)
+            MatchMode.NORMALIZED -> normalizrMatcher.findMatch(searchContent, searchPattern, options, lineEnding)
+            MatchMode.FUZZY -> fuzzyMatcher.findMatch(searchContent, searchPattern, options, lineEnding)
+            MatchMode.TOKENIZED -> tokenMatcher.findTokenizedMatch(searchContent, searchPattern, options)
             MatchMode.SEMANTIC -> findSemanticMatch(searchContent, searchPattern, options)
             MatchMode.REGEX -> findRegexMatch(searchContent, searchPattern, options)
             MatchMode.CONTAINS -> findContainsMatch(searchContent, searchPattern, options)
@@ -368,110 +372,6 @@ class PatchExecutor(
     // Match Strategies
     // ============================================
 
-    /**
-     * Точное совпадение после нормализации
-     */
-    private fun findNormalizedMatch(
-        content: String,
-        pattern: String,
-        options: MatchOptions,
-        lineEnding: String
-    ): MatchResult? {
-        val normalizedPattern = textNormalizer.normalizeForFuzzy(
-            pattern,
-            options.ignoreComments,
-            options.ignoreEmptyLines
-        )
-
-        val patternLines = pattern.lines()
-        val contentLines = content.lines()
-
-        for (startLine in contentLines.indices) {
-            val endLine = minOf(startLine + patternLines.size, contentLines.size)
-            val windowLines = contentLines.subList(startLine, endLine)
-            val window = windowLines.joinToString(lineEnding)
-
-            val normalizedWindow = textNormalizer.normalizeForFuzzy(
-                window,
-                options.ignoreComments,
-                options.ignoreEmptyLines
-            )
-
-            val s1 = if (options.caseSensitive) normalizedPattern else normalizedPattern.lowercase()
-            val s2 = if (options.caseSensitive) normalizedWindow else normalizedWindow.lowercase()
-
-            if (s1 == s2) {
-                val beforeLines = contentLines.subList(0, startLine)
-                val offset = beforeLines.joinToString(lineEnding).length +
-                        (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
-
-                return MatchResult(offset, window.length, window)
-            }
-        }
-
-        return null
-    }
-
-    /**
-     * Приближенное совпадение с использованием Levenshtein
-     */
-    private fun findFuzzyMatch(
-        content: String,
-        pattern: String,
-        options: MatchOptions,
-        lineEnding: String
-    ): MatchResult? {
-        // Если threshold >= 1.0, используем точное совпадение
-        if (options.fuzzyThreshold >= 1.0) {
-            return findNormalizedMatch(content, pattern, options, lineEnding)
-        }
-
-        val contentLines = content.lines()
-        val patternLines = pattern.lines()
-        val patternLineCount = patternLines.size
-
-        var bestMatch: MatchResult? = null
-        var bestSimilarity = 0.0
-
-        // Скользящее окно по количеству строк pattern
-        for (startLine in 0..contentLines.size - patternLineCount) {
-            val endLine = startLine + patternLineCount
-            val windowLines = contentLines.subList(startLine, endLine)
-            val window = windowLines.joinToString(lineEnding)
-
-            val similarity = calculateFuzzySimilarity(pattern, window, options)
-
-            if (similarity >= options.fuzzyThreshold && similarity > bestSimilarity) {
-                val beforeLines = contentLines.subList(0, startLine)
-                val offset = beforeLines.joinToString(lineEnding).length +
-                        (if (beforeLines.isNotEmpty()) lineEnding.length else 0)
-
-                bestMatch = MatchResult(offset, window.length, window)
-                bestSimilarity = similarity
-            }
-        }
-
-        return bestMatch
-    }
-
-    /**
-     * Поиск по токенам
-     */
-    private fun findTokenizedMatch(
-        content: String,
-        pattern: String,
-        options: MatchOptions
-    ): MatchResult? {
-        val result = if (options.fuzzyThreshold >= 1.0) {
-            tokenMatcher.findTokenizedMatch(content, pattern, options)
-        } else {
-            tokenMatcher.findTokenizedMatchFuzzy(content, pattern, options, options.fuzzyThreshold)
-        }
-
-        return result?.let {
-            MatchResult(it.index, it.length, it.matchedText)
-        }
-    }
 
     /**
      * Поиск по сигнатуре функции/класса
@@ -572,32 +472,6 @@ class PatchExecutor(
         return MatchResult(offset, matchText.length, matchText)
     }
 
-    // ============================================
-    // Helper Methods
-    // ============================================
-
-    private fun calculateFuzzySimilarity(
-        text1: String,
-        text2: String,
-        options: MatchOptions
-    ): Double {
-        val norm1 = textNormalizer.normalizeForFuzzy(
-            text1,
-            options.ignoreComments,
-            options.ignoreEmptyLines
-        )
-        val norm2 = textNormalizer.normalizeForFuzzy(
-            text2,
-            options.ignoreComments,
-            options.ignoreEmptyLines
-        )
-
-        val s1 = if (options.caseSensitive) norm1 else norm1.lowercase()
-        val s2 = if (options.caseSensitive) norm2 else norm2.lowercase()
-
-        return levenshteinCalculator.calculateSimilarity(s1, s2, options.fuzzyThreshold)
-    }
-
     private fun findAnchorContext(
         content: String,
         anchor: AnchorOptions,
@@ -605,7 +479,7 @@ class PatchExecutor(
     ): String? {
         val anchorIndex = when (anchor.matchMode) {
             MatchMode.NORMALIZED -> {
-                findFuzzyMatch(
+                normalizrMatcher.findMatch(
                     content,
                     anchor.anchorText,
                     MatchOptions(mode = MatchMode.NORMALIZED, fuzzyThreshold = 1.0),
@@ -613,7 +487,7 @@ class PatchExecutor(
                 )?.index ?: -1
             }
             MatchMode.FUZZY -> {
-                findFuzzyMatch(
+                fuzzyMatcher.findMatch(
                     content,
                     anchor.anchorText,
                     MatchOptions(mode = MatchMode.FUZZY, fuzzyThreshold = 0.85),
@@ -628,7 +502,7 @@ class PatchExecutor(
                 )?.index ?: -1
             }
             else -> {
-                findFuzzyMatch(
+                fuzzyMatcher.findMatch(
                     content,
                     anchor.anchorText,
                     MatchOptions(mode = MatchMode.NORMALIZED, fuzzyThreshold = 1.0),
