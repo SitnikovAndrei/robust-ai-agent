@@ -1,0 +1,53 @@
+=== PATCH START ===
+NAME: qwdqw
+DESCRIPTION: qwdq
+AUTHOR: qwdq
+VERSION: 1.0
+---
+
+--- FILE: example/1.kt ---
+ACTION: replace
+DESCRIPTION: fwwfe
+MATCH_MODE: fuzzy
+
+@@ TARGET
+contents: String,
+@@
+
+@@ CONTENT
+contentssss: String,
+@@
+
+=== PATCH END ===
+
+
+=== PATCH START ===
+NAME: qwdqw
+DESCRIPTION: qwdq
+AUTHOR: qwdq
+VERSION: 1.0
+---
+
+// создание файла
+--- FILE: example/2.kt ---
+ACTION: create_file
+DESCRIPTION: fwwfe
+MATCH_MODE: fuzzy
+
+@@ CONTENT
+wqdqwdqwdqwdq
+@@
+
+=== PATCH END ===
+
+// перемещение файла
+--- FILE: example/2.kt ---
+ACTION: move_file
+DESCRIPTION: fwwfe
+MATCH_MODE: fuzzy
+
+@@ TO
+example/3.kt
+@@
+
+=== PATCH END ===
