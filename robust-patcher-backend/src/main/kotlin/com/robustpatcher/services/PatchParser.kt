@@ -110,16 +110,27 @@ class PatchParser {
         return patches
     }
 
+    private fun String.removeBackticks(): String {
+        return if (this.startsWith("`") && this.endsWith("`") && this.length >= 2) {
+            this.substring(1, this.length - 1)
+        } else {
+            this
+        }
+    }
+
     private fun parseFilePatch(lines: List<String>, start: Int): Pair<FilePatch, Int> {
         var i = start
 
         // Парсим заголовок файла
-        val fileHeader = lines[i].trim().substringAfter("#### File:").trim().removeSurrounding("`")
-        val isMove = fileHeader.contains("→")
+        val fileHeader = lines[i].trim()
+            .substringAfter("#### File:")
+            .trim()
+
+        val isMove = fileHeader.contains("->")
         val filePath = if (isMove) {
-            fileHeader.substringBefore("→").trim()
+            fileHeader.substringBefore("->").trim().removeBackticks()
         } else {
-            fileHeader
+            fileHeader.removeBackticks()
         }
         i++
 
@@ -168,7 +179,8 @@ class PatchParser {
 
         // Для move добавляем destination из заголовка
         if (isMove) {
-            blocks[BlockNames.DESTINATION] = fileHeader.substringAfter("→").trim()
+            val destination = fileHeader.substringAfter("->").trim().removeBackticks()
+            blocks[BlockNames.DESTINATION] = destination
         }
 
         // Читаем содержимое до следующего файла или конца
@@ -224,12 +236,6 @@ class PatchParser {
                     val (code, nextLine) = extractCodeBlock(lines, i)
                     blocks[BlockNames.INSERT_CONTENT] = code
                     i = nextLine
-                }
-
-                // Для move - куда перемещаем (из строки, не code block)
-                line.startsWith("**To:**") && action == "move" -> {
-                    blocks[BlockNames.DESTINATION] = line.substringAfter("**To:**").trim().removeSurrounding("`")
-                    i++
                 }
 
                 // Для create_file - просто код без метки
