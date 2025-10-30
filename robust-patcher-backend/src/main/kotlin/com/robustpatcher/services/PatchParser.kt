@@ -4,226 +4,398 @@ import com.robustpatcher.models.*
 
 class PatchParser {
 
+    // Константы для названий блоков - больше никакой путаницы!
+    private object BlockNames {
+        const val ANCHOR = "ANCHOR"
+        const val FIND = "FIND"           // что ищем (для replace, delete)
+        const val REPLACE_WITH = "REPLACE_WITH"  // на что заменяем
+        const val INSERT_CONTENT = "INSERT_CONTENT"  // что вставляем
+        const val DESTINATION = "DESTINATION"  // куда перемещаем
+    }
+
     fun parse(content: String): Pair<PatchMetadata, List<FilePatch>> {
         val lines = content.lines()
-        var i = 0
+        var currentLine = 0
 
-        while (i < lines.size && lines[i].trim() != "=== PATCH START ===") {
+        // Шаг 1: Найти заголовок патча
+        currentLine = findPatchHeader(lines, currentLine)
+
+        // Шаг 2: Прочитать метаданные
+        val (metadata, nextLine) = parsePatchMetadata(lines, currentLine)
+        currentLine = nextLine
+
+        // Шаг 3: Прочитать все файлы
+        val filePatches = parseAllFiles(lines, currentLine)
+
+        return Pair(metadata, filePatches)
+    }
+
+    // ==================== ПАРСИНГ МЕТАДАННЫХ ====================
+
+    private fun findPatchHeader(lines: List<String>, start: Int): Int {
+        var i = start
+        while (i < lines.size && !lines[i].trim().startsWith("### PATCH:")) {
             i++
         }
         if (i >= lines.size) {
-            throw IllegalArgumentException("PATCH START marker not found")
+            throw IllegalArgumentException("PATCH header not found")
         }
+        return i
+    }
+
+    private fun parsePatchMetadata(lines: List<String>, start: Int): Pair<PatchMetadata, Int> {
+        var i = start
+
+        val patchName = lines[i].trim().substringAfter("### PATCH:").trim()
         i++
 
-        val metadata = mutableMapOf<String, String>()
+        var description = ""
+        var author = "Unknown"
+        var version = "1.0"
+
+        // Читаем метаданные до разделителя ---
         while (i < lines.size) {
             val line = lines[i].trim()
-            if (line.isEmpty() || line.startsWith("---")) break
-            if (line.contains(":")) {
-                val (key, value) = line.split(":", limit = 2)
-                metadata[key.trim()] = value.trim()
+
+            if (line == "---") {
+                i++ // пропускаем разделитель
+                break
             }
+
+            when {
+                line.startsWith("**Description:**") ->
+                    description = line.substringAfter("**Description:**").trim()
+                line.startsWith("**Author:**") ->
+                    author = line.substringAfter("**Author:**").trim()
+                line.startsWith("**Version:**") ->
+                    version = line.substringAfter("**Version:**").trim()
+            }
+
             i++
         }
 
-        val patchMetadata = PatchMetadata(
-            name = metadata["NAME"] ?: "Unnamed",
-            description = metadata["DESCRIPTION"] ?: "",
-            author = metadata["AUTHOR"] ?: "Unknown",
-            version = metadata["VERSION"] ?: "1.0"
+        val metadata = PatchMetadata(
+            name = patchName,
+            description = description,
+            author = author,
+            version = version
         )
 
+        return Pair(metadata, i)
+    }
+
+    // ==================== ПАРСИНГ ФАЙЛОВ ====================
+
+    private fun parseAllFiles(lines: List<String>, start: Int): List<FilePatch> {
         val patches = mutableListOf<FilePatch>()
+        var i = start
 
         while (i < lines.size) {
-            val line = lines[i].trim()
-            if (line == "=== PATCH END ===") break
-            if (line.startsWith("--- FILE:")) {
-                val file = line.substringAfter("--- FILE:").substringBefore("---").trim()
+            // Пропускаем разделители
+            if (lines[i].trim() == "---") {
                 i++
+                continue
+            }
 
-                var action = ""
-                var description = ""
-                val params = mutableMapOf<String, String>()
-
-                while (i < lines.size) {
-                    val paramLine = lines[i].trim()
-                    if (paramLine.startsWith("@@")) break  // Остановиться перед блоками
-                    when {
-                        paramLine.startsWith("ACTION:") -> action = paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("DESCRIPTION:") -> description = paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("MATCH_MODE:") -> params["MATCH_MODE"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("FUZZY_THRESHOLD:") -> params["FUZZY_THRESHOLD"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("IGNORE_COMMENTS:") -> params["IGNORE_COMMENTS"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("IGNORE_EMPTY_LINES:") -> params["IGNORE_EMPTY_LINES"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("CASE_SENSITIVE:") -> params["CASE_SENSITIVE"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("MATCH_FUNCTION_NAME:") -> params["MATCH_FUNCTION_NAME"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("MATCH_CLASS_NAME:") -> params["MATCH_CLASS_NAME"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("MATCH_PARAMETER_TYPES:") -> params["MATCH_PARAMETER_TYPES"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("MATCH_PARAMETER_NAMES:") -> params["MATCH_PARAMETER_NAMES"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("MATCH_RETURN_TYPE:") -> params["MATCH_RETURN_TYPE"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("MATCH_MODIFIERS:") -> params["MATCH_MODIFIERS"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("ANCHOR_MATCH_MODE:") -> params["ANCHOR_MATCH_MODE"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("ANCHOR_SCOPE:") -> params["ANCHOR_SCOPE"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("ANCHOR_SEARCH_DEPTH:") -> params["ANCHOR_SEARCH_DEPTH"] =
-                            paramLine.substringAfter(":").trim()
-                        paramLine.startsWith("OVERWRITE:") -> params["OVERWRITE"] =
-                            paramLine.substringAfter(":").trim()
-                    }
-                    i++
-                }
-
-                val blocks = mutableMapOf<String, String>()
-                while (i < lines.size) {
-                    val blockLine = lines[i].trim()
-                    if (blockLine.startsWith("---") || blockLine == "=== PATCH END ===") break
-
-                    // Поддержка формата @@ BLOCK_TYPE
-                    if (blockLine.startsWith("@@")) {
-                        val blockType = blockLine.substring(2).trim()
-                        if (blockType.isEmpty()) {
-                            // Это закрывающий @@ - пропускаем
-                            i++
-                            continue
-                        }
-                        i++
-                        val blockContent = StringBuilder()
-                        while (i < lines.size) {
-                            val contentLine = lines[i]
-                            if (contentLine.trim() == "@@") break
-                            blockContent.append(contentLine).append("\n")
-                            i++
-                        }
-                        blocks[blockType] = blockContent.toString().trimEnd()
-                        i++
-                    } else {
-                        i++
-                    }
-                }
-
-                val patchAction = createPatchAction(action, blocks, params)
-                patches.add(FilePatch(file, description, patchAction))
+            // Ищем начало секции файла
+            if (lines[i].trim().startsWith("#### File:")) {
+                val (filePatch, nextLine) = parseFilePatch(lines, i)
+                patches.add(filePatch)
+                i = nextLine
             } else {
                 i++
             }
         }
 
-        return Pair(patchMetadata, patches)
+        return patches
     }
+
+    private fun parseFilePatch(lines: List<String>, start: Int): Pair<FilePatch, Int> {
+        var i = start
+
+        // Парсим заголовок файла
+        val fileHeader = lines[i].trim().substringAfter("#### File:").trim().removeSurrounding("`")
+        val isMove = fileHeader.contains("→")
+        val filePath = if (isMove) {
+            fileHeader.substringBefore("→").trim()
+        } else {
+            fileHeader
+        }
+        i++
+
+        // Парсим действие
+        var action = ""
+        if (i < lines.size && lines[i].trim().startsWith("**Action:**")) {
+            action = lines[i].trim().substringAfter("**Action:**").trim()
+            i++
+        }
+
+        // Парсим описание (опционально)
+        var description = ""
+        if (i < lines.size && lines[i].trim().startsWith("**Description:**")) {
+            description = lines[i].trim().substringAfter("**Description:**").trim()
+            i++
+        }
+
+        // Парсим опции и блоки кода
+        val (options, blocks, nextLine) = parseFileContent(lines, i, action, isMove, fileHeader)
+        i = nextLine
+
+        // Создаём действие
+        val patchAction = createPatchAction(action, blocks, options)
+
+        return Pair(FilePatch(filePath, description, patchAction), i)
+    }
+
+    // ==================== ПАРСИНГ СОДЕРЖИМОГО ФАЙЛА ====================
+
+    private data class FileContent(
+        val options: Map<String, String>,
+        val blocks: Map<String, String>,
+        val nextLine: Int
+    )
+
+    private fun parseFileContent(
+        lines: List<String>,
+        start: Int,
+        action: String,
+        isMove: Boolean,
+        fileHeader: String
+    ): FileContent {
+        var i = start
+        val options = mutableMapOf<String, String>()
+        val blocks = mutableMapOf<String, String>()
+
+        // Для move добавляем destination из заголовка
+        if (isMove) {
+            blocks[BlockNames.DESTINATION] = fileHeader.substringAfter("→").trim()
+        }
+
+        // Читаем содержимое до следующего файла или конца
+        while (i < lines.size) {
+            val line = lines[i].trim()
+
+            // Конец секции файла
+            if (line == "---" || line.startsWith("#### File:")) {
+                break
+            }
+
+            when {
+                // Блок опций
+                line.startsWith("**Options:**") -> {
+                    i++
+                    i = parseOptionsBlock(lines, i, options)
+                }
+
+                // Блок якоря
+                line.startsWith("**Anchor:**") -> {
+                    i++
+                    val (code, nextLine) = extractCodeBlock(lines, i)
+                    blocks[BlockNames.ANCHOR] = code
+                    i = nextLine
+                }
+
+                // Блок "что ищем" - для replace, delete, insert_before, insert_after
+                line.startsWith("**From:**") ||
+                        line.startsWith("**Remove this:**") ||
+                        line.startsWith("**Before this:**") ||
+                        line.startsWith("**After this:**") -> {
+                    i++
+                    val (code, nextLine) = extractCodeBlock(lines, i)
+                    blocks[BlockNames.FIND] = code
+                    i = nextLine
+                }
+
+                // Блок "на что заменяем" или "что вставляем"
+                line.startsWith("**To:**") && action != "move" -> {
+                    i++
+                    val (code, nextLine) = extractCodeBlock(lines, i)
+                    blocks[BlockNames.REPLACE_WITH] = code
+                    i = nextLine
+                }
+                line.startsWith("**Replace:**") -> {
+                    i++
+                    val (code, nextLine) = extractCodeBlock(lines, i)
+                    blocks[BlockNames.REPLACE_WITH] = code
+                    i = nextLine
+                }
+                line.startsWith("**Insert:**") -> {
+                    i++
+                    val (code, nextLine) = extractCodeBlock(lines, i)
+                    blocks[BlockNames.INSERT_CONTENT] = code
+                    i = nextLine
+                }
+
+                // Для move - куда перемещаем (из строки, не code block)
+                line.startsWith("**To:**") && action == "move" -> {
+                    blocks[BlockNames.DESTINATION] = line.substringAfter("**To:**").trim().removeSurrounding("`")
+                    i++
+                }
+
+                // Для create_file - просто код без метки
+                line.startsWith("```") && blocks.isEmpty() && action == "create_file" -> {
+                    val (code, nextLine) = extractCodeBlock(lines, i)
+                    blocks[BlockNames.INSERT_CONTENT] = code
+                    i = nextLine
+                }
+
+                else -> i++
+            }
+        }
+
+        return FileContent(options, blocks, i)
+    }
+
+    private fun parseOptionsBlock(
+        lines: List<String>,
+        start: Int,
+        options: MutableMap<String, String>
+    ): Int {
+        var i = start
+
+        while (i < lines.size) {
+            val line = lines[i].trim()
+
+            // Конец блока опций
+            if (line.isEmpty() ||
+                line.startsWith("**") ||
+                line.startsWith("```") ||
+                line == "---") {
+                break
+            }
+
+            // Парсим опцию формата "- KEY: value"
+            if (line.startsWith("-") && line.contains(":")) {
+                val optionText = line.substring(1).trim()
+                val colonIndex = optionText.indexOf(":")
+                val key = optionText.substring(0, colonIndex).trim()
+                val value = optionText.substring(colonIndex + 1).trim()
+                options[key] = value
+            }
+
+            i++
+        }
+
+        return i
+    }
+
+    private fun extractCodeBlock(lines: List<String>, start: Int): Pair<String, Int> {
+        var i = start
+
+        // Пропускаем пустые строки
+        while (i < lines.size && lines[i].trim().isEmpty()) {
+            i++
+        }
+
+        // Должен начинаться с ```
+        if (i >= lines.size || !lines[i].trim().startsWith("```")) {
+            return Pair("", i)
+        }
+
+        i++ // пропускаем открывающий ```
+
+        val code = StringBuilder()
+        while (i < lines.size) {
+            val line = lines[i]
+
+            // Закрывающий ```
+            if (line.trim().startsWith("```")) {
+                i++ // пропускаем закрывающий ```
+                break
+            }
+
+            code.append(line).append("\n")
+            i++
+        }
+
+        return Pair(code.toString().trimEnd(), i)
+    }
+
+    // ==================== СОЗДАНИЕ ДЕЙСТВИЙ ====================
 
     private fun createPatchAction(
         action: String,
         blocks: Map<String, String>,
-        params: Map<String, String>
+        optionsMap: Map<String, String>
     ): PatchAction {
-        val matchOptions = parseMatchOptions(params, blocks)
+        val matchOptions = buildMatchOptions(optionsMap, blocks)
+
         return when (action.lowercase()) {
             "replace" -> PatchAction.Replace(
-                find = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
-                replace = blocks["CONTENT"] ?: blocks["REPLACE"]
-                ?: throw IllegalArgumentException("Missing CONTENT block"),
+                find = blocks[BlockNames.FIND]
+                    ?: error("Missing FIND block for replace action"),
+                replace = blocks[BlockNames.REPLACE_WITH]
+                    ?: error("Missing REPLACE_WITH block for replace action"),
                 matchOptions = matchOptions
             )
 
             "insert_before" -> PatchAction.InsertBefore(
-                marker = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
-                content = blocks["CONTENT"] ?: throw IllegalArgumentException("Missing CONTENT block"),
+                marker = blocks[BlockNames.FIND]
+                    ?: error("Missing FIND block for insert_before action"),
+                content = blocks[BlockNames.INSERT_CONTENT]
+                    ?: error("Missing INSERT_CONTENT block for insert_before action"),
                 matchOptions = matchOptions
             )
 
             "insert_after" -> PatchAction.InsertAfter(
-                marker = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
-                content = blocks["CONTENT"] ?: throw IllegalArgumentException("Missing CONTENT block"),
+                marker = blocks[BlockNames.FIND]
+                    ?: error("Missing FIND block for insert_after action"),
+                content = blocks[BlockNames.INSERT_CONTENT]
+                    ?: error("Missing INSERT_CONTENT block for insert_after action"),
                 matchOptions = matchOptions
             )
 
             "delete" -> PatchAction.Delete(
-                find = blocks["TARGET"] ?: throw IllegalArgumentException("Missing TARGET block"),
+                find = blocks[BlockNames.FIND]
+                    ?: error("Missing FIND block for delete action"),
                 matchOptions = matchOptions
             )
 
             "create_file" -> PatchAction.CreateFile(
-                content = blocks["CONTENT"] ?: throw IllegalArgumentException("Missing CONTENT block")
+                content = blocks[BlockNames.INSERT_CONTENT]
+                    ?: error("Missing INSERT_CONTENT block for create_file action")
             )
 
             "replace_file" -> PatchAction.ReplaceFile(
-                content = blocks["CONTENT"] ?: throw IllegalArgumentException("Missing CONTENT block")
+                content = blocks[BlockNames.INSERT_CONTENT]
+                    ?: error("Missing INSERT_CONTENT block for replace_file action")
             )
 
             "delete_file" -> PatchAction.DeleteFile()
-            "move_file" -> {
-                val overwriteStr = params["OVERWRITE"]?.trim()?.lowercase()
-                PatchAction.MoveFile(
-                    destination = blocks["TO"] ?: throw IllegalArgumentException("Missing TO block"),
-                    overwrite = overwriteStr == "true" || overwriteStr == "yes"
-                )
-            }
 
-            else -> throw IllegalArgumentException("Unknown action: $action")
+            "move" -> PatchAction.MoveFile(
+                destination = blocks[BlockNames.DESTINATION]
+                    ?: error("Missing DESTINATION for move action"),
+                overwrite = optionsMap["OVERWRITE"]?.toBooleanOrFalse() ?: false
+            )
+
+            else -> error("Unknown action: $action")
         }
     }
 
-    private fun parseMatchOptions(params: Map<String, String>, blocks: Map<String, String>): MatchOptions {
-        val matchMode = when (params["MATCH_MODE"]?.lowercase()) {
-            "normalized" -> MatchMode.NORMALIZED
-            "fuzzy" -> MatchMode.FUZZY
-            "tokenized" -> MatchMode.TOKENIZED
-            "semantic" -> MatchMode.SEMANTIC
-            "regex" -> MatchMode.REGEX
-            "contains" -> MatchMode.CONTAINS
-            "line_range" -> MatchMode.LINE_RANGE
-            else -> MatchMode.NORMALIZED
+    // ==================== ПОСТРОЕНИЕ MATCH OPTIONS ====================
+
+    private fun buildMatchOptions(
+        options: Map<String, String>,
+        blocks: Map<String, String>
+    ): MatchOptions {
+        val matchMode = parseMatchMode(options["MATCH_MODE"])
+        val fuzzyThreshold = options["FUZZY_THRESHOLD"]?.toDoubleOrNull() ?: 0.85
+        val ignoreComments = options["IGNORE_COMMENTS"]?.toBooleanOrFalse() ?: false
+        val ignoreEmptyLines = options["IGNORE_EMPTY_LINES"]?.toBooleanOrTrue() ?: true
+        val caseSensitive = options["CASE_SENSITIVE"]?.toBooleanOrTrue() ?: true
+        val tokenWindowSize = options["TOKEN_WINDOW_SIZE"]?.toIntOrNull() ?: 0
+
+        val matchFunctionName = options["MATCH_FUNCTION_NAME"]?.toBooleanOrTrue() ?: true
+        val matchClassName = options["MATCH_CLASS_NAME"]?.toBooleanOrTrue() ?: true
+        val matchParameterTypes = options["MATCH_PARAMETER_TYPES"]?.toBooleanOrTrue() ?: true
+        val matchParameterNames = options["MATCH_PARAMETER_NAMES"]?.toBooleanOrFalse() ?: false
+        val matchReturnType = options["MATCH_RETURN_TYPE"]?.toBooleanOrTrue() ?: true
+        val matchModifiers = options["MATCH_MODIFIERS"]?.toBooleanOrFalse() ?: false
+
+        val anchor = blocks[BlockNames.ANCHOR]?.let { anchorText ->
+            buildAnchorOptions(anchorText, options)
         }
-        val fuzzyThreshold = params["FUZZY_THRESHOLD"]?.toDoubleOrNull() ?: 0.85
-        val ignoreComments = params["IGNORE_COMMENTS"]?.lowercase() == "true"
-        val ignoreEmptyLines = params["IGNORE_EMPTY_LINES"]?.lowercase() != "false"
-        val caseSensitive = params["CASE_SENSITIVE"]?.lowercase() != "false"
-
-        // TOKENIZED параметры
-        val tokenWindowSize = params["TOKEN_WINDOW_SIZE"]?.toIntOrNull() ?: 0
-
-        val matchFunctionName = params["MATCH_FUNCTION_NAME"]?.lowercase() != "false"
-        val matchClassName = params["MATCH_CLASS_NAME"]?.lowercase() != "false"
-        val matchParameterTypes = params["MATCH_PARAMETER_TYPES"]?.lowercase() != "false"
-        val matchParameterNames = params["MATCH_PARAMETER_NAMES"]?.lowercase() == "true"
-        val matchReturnType = params["MATCH_RETURN_TYPE"]?.lowercase() != "false"
-        val matchModifiers = params["MATCH_MODIFIERS"]?.lowercase() == "true"
-        val anchor = if (blocks.containsKey("ANCHOR")) {
-            val anchorMatchMode = when (params["ANCHOR_MATCH_MODE"]?.lowercase()) {
-                "normalized" -> MatchMode.NORMALIZED
-                "fuzzy" -> MatchMode.FUZZY
-                "semantic" -> MatchMode.SEMANTIC
-                else -> MatchMode.NORMALIZED
-            }
-            val anchorScope = when (params["ANCHOR_SCOPE"]?.lowercase()) {
-                "function" -> AnchorScope.FUNCTION
-                "class" -> AnchorScope.CLASS
-                "block" -> AnchorScope.BLOCK
-                "file" -> AnchorScope.FILE
-                else -> AnchorScope.AUTO
-            }
-            val searchDepth = params["ANCHOR_SEARCH_DEPTH"]?.toIntOrNull() ?: 1
-            AnchorOptions(
-                anchorText = blocks["ANCHOR"]!!,
-                matchMode = anchorMatchMode,
-                scope = anchorScope,
-                searchDepth = searchDepth
-            )
-        } else null
 
         return MatchOptions(
             mode = matchMode,
@@ -240,5 +412,52 @@ class PatchParser {
             matchModifiers = matchModifiers,
             anchor = anchor
         )
+    }
+
+    private fun parseMatchMode(value: String?): MatchMode {
+        return when (value?.lowercase()) {
+            "normalized" -> MatchMode.NORMALIZED
+            "fuzzy" -> MatchMode.FUZZY
+            "tokenized" -> MatchMode.TOKENIZED
+            "semantic" -> MatchMode.SEMANTIC
+            "regex" -> MatchMode.REGEX
+            "contains" -> MatchMode.CONTAINS
+            "line_range" -> MatchMode.LINE_RANGE
+            else -> MatchMode.NORMALIZED
+        }
+    }
+
+    private fun buildAnchorOptions(
+        anchorText: String,
+        options: Map<String, String>
+    ): AnchorOptions {
+        val matchMode = parseMatchMode(options["ANCHOR_MATCH_MODE"])
+
+        val scope = when (options["ANCHOR_SCOPE"]?.lowercase()) {
+            "function" -> AnchorScope.FUNCTION
+            "class" -> AnchorScope.CLASS
+            "block" -> AnchorScope.BLOCK
+            "file" -> AnchorScope.FILE
+            else -> AnchorScope.AUTO
+        }
+
+        val searchDepth = options["ANCHOR_SEARCH_DEPTH"]?.toIntOrNull() ?: 1
+
+        return AnchorOptions(
+            anchorText = anchorText,
+            matchMode = matchMode,
+            scope = scope,
+            searchDepth = searchDepth
+        )
+    }
+
+    // ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+    private fun String.toBooleanOrFalse(): Boolean {
+        return this.lowercase() == "true" || this.lowercase() == "yes"
+    }
+
+    private fun String.toBooleanOrTrue(): Boolean {
+        return this.lowercase() != "false" && this.lowercase() != "no"
     }
 }
