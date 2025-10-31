@@ -238,8 +238,8 @@ class PatchParser {
                     i = nextLine
                 }
 
-                // Для create_file - просто код без метки
-                line.startsWith("```") && blocks.isEmpty() && action == "create_file" -> {
+                // Для create_file или replace_file - просто код без метки
+                line.startsWith("```") && blocks.isEmpty() && (action == "create_file" ||  action == "replace_file") -> {
                     val (code, nextLine) = extractCodeBlock(lines, i)
                     blocks[BlockNames.INSERT_CONTENT] = code
                     i = nextLine
